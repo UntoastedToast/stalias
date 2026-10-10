@@ -14,7 +14,9 @@ generator. Other clients can use the supported API endpoints too, provided they 
 set a custom Addy.io server URL.
 
 Create a separate address for each new login and receive its mail in your existing
-mailbox. You can disable or delete individual aliases through the web UI or API.
+mailbox. You can disable or delete individual aliases through the web UI or API, and search
+them by address or description (Bitwarden puts the website into the description), filter by
+status, domain and creation date, and sort them.
 Disabling an alias stops incoming mail immediately: Stalwart rejects it with
 `550 Mailbox does not exist`.
 
@@ -144,6 +146,10 @@ or UUID alias IDs may need changes.
 - stalias reads at most 500 mailboxes (Stalwart's per-request limit).
 - Settings, tokens and sessions are stored in `/data/stalias.db` (SQLite). Tokens are
   stored as hashes and shown only once.
+- Stalwart records no creation date for aliases, so stalias remembers the date of every alias
+  created through it (web UI or API) in the same database. Aliases that already existed, or
+  that you create in Stalwart directly, show no date and are left out when you filter by
+  creation date.
 
 ## Configuration
 

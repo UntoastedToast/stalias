@@ -1,0 +1,50 @@
+{% import "components/macros.html" as m %}
+{# The filtered alias table: summary line, table, empty state and pager. Also sent alone to htmx. #}
+<div id="alias-results" class="grid gap-4">
+  {% if let Some(e) = results.error %}{{ m::alert(e, "", "") }}{% endif %}
+  {% if !results.summary.is_empty() %}<p class="text-sm text-muted-foreground" aria-live="polite">{{ results.summary }}</p>{% endif %}
+  <div class="table-container table-wrap">
+    <table class="table w-full min-w-[46rem] table-fixed">
+      <thead><tr><th class="w-[28%]">Address</th><th>Description</th><th class="w-28">Created</th><th class="w-26">Status</th><th class="w-56"></th></tr></thead>
+      <tbody id="alias-rows">
+        {% for a in results.rows %}{% include "components/alias_row.html" %}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if let Some(empty) = results.empty %}
+  <section class="empty empty-hint">
+    <header>
+      <figure>{% include "icons/search.svg" %}</figure>
+      <h3>{{ empty.title }}</h3>
+      <p>{{ empty.text }}</p>
+    </header>
+  </section>
+  {% endif %}
+  {% if !results.pages.is_empty() %}
+  <nav role="navigation" aria-label="pagination" class="mx-auto flex w-full justify-center" hx-target="#alias-results" hx-swap="outerHTML" hx-push-url="false">
+    <ul class="flex flex-row items-center gap-1">
+      <li>
+        {% if let Some(q) = results.prev %}
+        <a href="/?{{ q }}" hx-get="/aliases/list?{{ q }}" class="btn" data-variant="ghost">{% include "icons/chevron-left.svg" %}Previous</a>
+        {% else %}
+        <button type="button" class="btn" data-variant="ghost" disabled>{% include "icons/chevron-left.svg" %}Previous</button>
+        {% endif %}
+      </li>
+      {% for p in results.pages %}
+      {% if p.gap %}
+      <li><div class="size-9 flex items-center justify-center" aria-hidden="true">{% include "icons/ellipsis.svg" %}</div></li>
+      {% else %}
+      <li><a href="/?{{ p.query }}" hx-get="/aliases/list?{{ p.query }}" class="btn" data-variant="{% if p.current %}outline{% else %}ghost{% endif %}" data-size="icon" {% if p.current %}aria-current="page"{% endif %}>{{ p.number }}</a></li>
+      {% endif %}
+      {% endfor %}
+      <li>
+        {% if let Some(q) = results.next %}
+        <a href="/?{{ q }}" hx-get="/aliases/list?{{ q }}" class="btn" data-variant="ghost">Next{% include "icons/chevron-right.svg" %}</a>
+        {% else %}
+        <button type="button" class="btn" data-variant="ghost" disabled>Next{% include "icons/chevron-right.svg" %}</button>
+        {% endif %}
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+</div>

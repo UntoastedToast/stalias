@@ -768,3 +768,185 @@ async fn saving_a_key_without_update_permission_is_refused() {
     let saved = h.store.settings().await.unwrap().stalwart_url.unwrap();
     assert_ne!(saved, server.uri());
 }
+
+fn list(account: &str, query: &str) -> Request<Body> {
+    get(&format!("/aliases/list?account={account}{query}"), None)
+}
+
+async fn list_page(h: &Harness, cookie: &str, query: &str) -> String {
+    let req = Request::builder()
+        .uri(format!("/aliases/list?account={ACCOUNT}{query}"))
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .unwrap();
+    let res = send(&h.app, req).await;
+    assert_eq!(res.status, StatusCode::OK, "{query}: {}", res.body);
+    res.body
+}
+
+#[tokio::test]
+async fn alias_table_can_be_searched_filtered_and_sorted() {
+    let h = harness(false).await;
+    let cookie = admin_cookie(&h).await;
+    let t = Some(h.token.as_str());
+    for (local, description) in [
+        ("github", "Website: github.com"),
+        ("news", "Newsletters"),
+        ("shop", "Online shopping"),
+    ] {
+        let body = json!({ "format": "custom", "local_part": local, "description": description });
+        send(&h.app, api("POST", "/api/v1/aliases", t, Some(body))).await;
+    }
+    send(
+        &h.app,
+        api(
+            "DELETE",
+            &format!("/api/v1/active-aliases/news@{DOMAIN}"),
+            t,
+            None,
+        ),
+    )
+    .await;
+    // An alias stalias never saw being created has no date.
+    h.fake.aliases.lock().unwrap().insert(
+        "99".into(),
+        json!({ "name": "legacy", "domainId": "d1", "enabled": true }),
+    );
+    let has = |body: &str, local: &str| body.contains(&format!("{local}@{DOMAIN}"));
+
+    let all = list_page(&h, &cookie, "").await;
+    for local in ["github", "news", "shop", "legacy"] {
+        assert!(has(&all, local), "{local}");
+    }
+    assert!(all.contains("4 aliases"));
+    // Newest first: the last one added comes first.
+    assert!(all.find("legacy@").unwrap() < all.find("shop@").unwrap());
+    assert!(all.find("shop@").unwrap() < all.find("github@").unwrap());
+
+    let by_text = list_page(&h, &cookie, "&q=HUB").await;
+    assert!(has(&by_text, "github") && !has(&by_text, "shop"));
+    assert!(by_text.contains("1 of 4 aliases match"));
+    let by_description = list_page(&h, &cookie, "&q=shopping").await;
+    assert!(has(&by_description, "shop") && !has(&by_description, "news"));
+
+    let disabled = list_page(&h, &cookie, "&status=disabled").await;
+    assert!(has(&disabled, "news") && !has(&disabled, "github"));
+    let active = list_page(&h, &cookie, "&status=active").await;
+    assert!(!has(&active, "news") && has(&active, "github"));
+
+    let recent = list_page(&h, &cookie, "&created=week").await;
+    assert!(has(&recent, "github") && !has(&recent, "legacy"));
+    let today = time::OffsetDateTime::now_utc().date().to_string();
+    assert!(recent.contains(&today), "creation day {today} missing");
+
+    let sorted = list_page(&h, &cookie, "&sort=address").await;
+    assert!(sorted.find("github@").unwrap() < sorted.find("legacy@").unwrap());
+    assert!(sorted.find("legacy@").unwrap() < sorted.find("news@").unwrap());
+
+    let none = list_page(&h, &cookie, "&q=zzz").await;
+    assert!(none.contains("No matching aliases"), "{none}");
+    // Nonsense values never break the page.
+    let odd = list_page(&h, &cookie, "&status=x&created=y&sort=z&page=abc").await;
+    assert!(has(&odd, "github"));
+
+    // Without a session the table is not served.
+    assert_eq!(
+        send(&h.app, list(ACCOUNT, "")).await.status,
+        StatusCode::SEE_OTHER
+    );
+}
+
+#[tokio::test]
+async fn long_alias_lists_are_split_into_pages() {
+    let h = harness(false).await;
+    let cookie = admin_cookie(&h).await;
+    {
+        let mut aliases = h.fake.aliases.lock().unwrap();
+        for i in 0..120 {
+            aliases.insert(
+                i.to_string(),
+                json!({ "name": format!("p{i:03}"), "domainId": "d1", "enabled": true }),
+            );
+        }
+    }
+    let first = list_page(&h, &cookie, "").await;
+    assert!(
+        first.contains("Showing 1\u{2013}15 of 120 aliases"),
+        "{first}"
+    );
+    assert!(first.contains("p119@") && first.contains("p105@") && !first.contains("p104@"));
+    assert!(first.contains("page=2") && first.contains("aria-current=\"page\""));
+
+    let third = list_page(&h, &cookie, "&page=3").await;
+    assert!(
+        third.contains("Showing 31\u{2013}45 of 120 aliases"),
+        "{third}"
+    );
+    assert!(third.contains("p089@") && third.contains("p075@") && !third.contains("p105@"));
+
+    let last = list_page(&h, &cookie, "&page=8").await;
+    assert!(
+        last.contains("Showing 106\u{2013}120 of 120 aliases"),
+        "{last}"
+    );
+    assert!(last.contains("p000@") && !last.contains("p119@"));
+    // The pager keeps the search while moving on.
+    let searched = list_page(&h, &cookie, "&q=p0&page=2").await;
+    assert!(searched.contains("q=p0"), "{searched}");
+    // A page far beyond the end shows the last one.
+    let beyond = list_page(&h, &cookie, "&page=99").await;
+    assert!(beyond.contains("Showing 106\u{2013}120"));
+}
+
+#[tokio::test]
+async fn dashboard_has_the_search_bar_and_deleted_aliases_lose_their_date() {
+    let h = harness(false).await;
+    let cookie = admin_cookie(&h).await;
+    let page = send(&h.app, get("/", Some(&cookie))).await;
+    assert!(page.body.contains("id=\"alias-search\""));
+    assert!(page.body.contains("hx-get=\"/aliases/list\""));
+    assert!(page.body.contains("No aliases yet"));
+
+    let created = send(
+        &h.app,
+        form(
+            "/aliases",
+            Some(&cookie),
+            &[
+                ("account", ACCOUNT),
+                ("domain", DOMAIN),
+                ("local_part", "shop"),
+                ("description", ""),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER);
+    let address = format!("shop@{DOMAIN}");
+    assert!(
+        h.store
+            .alias_created_at(ACCOUNT, &address)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    let deleted = send(
+        &h.app,
+        api(
+            "DELETE",
+            &format!("/api/v1/aliases/{address}"),
+            Some(&h.token),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    assert!(
+        h.store
+            .alias_created_at(ACCOUNT, &address)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}

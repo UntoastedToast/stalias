@@ -9,32 +9,24 @@ use super::{
     SelectOption, UiError, UiResult, account_options, backend, next_step, no_swap, render,
     selected_value, toast, wants_fragment,
 };
-use crate::aliases::{AliasEntry, NewAlias};
+use crate::aliases::NewAlias;
 use crate::auth::Admin;
 use crate::state::AppState;
+use crate::store;
 
-struct AliasRow {
-    address: String,
-    description: String,
-    enabled: bool,
-}
+mod table;
 
-impl From<AliasEntry> for AliasRow {
-    fn from(entry: AliasEntry) -> Self {
-        Self {
-            address: entry.address(),
-            description: entry.description.unwrap_or_default(),
-            enabled: entry.enabled,
-        }
+use table::{
+    AliasRow, FilterBar, ListQuery, Results, ResultsFragment, filter_bar, load_results, now,
+    row_fragment,
+};
+
+/// Metadata is a convenience on top of Stalwart, so a failure to save it must not undo or
+/// hide an alias change that already happened.
+fn best_effort<T>(result: Result<T, store::Error>) {
+    if let Err(e) = result {
+        tracing::warn!("could not save alias metadata: {e}");
     }
-}
-
-/// A single table row, returned to htmx after creating or toggling an alias.
-#[derive(Template)]
-#[template(path = "components/alias_row.html")]
-struct AliasRowFragment<'a> {
-    a: &'a AliasRow,
-    account_id: &'a str,
 }
 
 #[derive(Template)]
@@ -47,30 +39,41 @@ struct DashboardPage {
     account_id: String,
     domains: Vec<SelectOption>,
     domain_value: String,
-    aliases: Vec<AliasRow>,
+    filter: FilterBar,
+    results: Results,
     error: Option<String>,
-}
-
-/// Query string of the dashboard: the mailbox to show.
-#[derive(Deserialize)]
-pub struct DashboardQuery {
-    account: Option<String>,
 }
 
 /// `GET /`: the aliases of a mailbox. Redirects to the next unfinished setup step.
 pub async fn page(
     _: Admin,
     State(state): State<AppState>,
-    Query(query): Query<DashboardQuery>,
+    Query(query): Query<ListQuery>,
 ) -> UiResult {
-    render_dashboard(&state, query.account, None).await
+    render_dashboard(&state, query, None).await
+}
+
+/// `GET /aliases/list`: just the alias table, for htmx while typing a search or changing a filter.
+pub async fn list(
+    _: Admin,
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> UiResult {
+    let account_id = ListQuery::text(&query.account).to_owned();
+    let results = load_results(&state, &account_id, &query).await?;
+    let html = ResultsFragment {
+        account_id: &account_id,
+        results: &results,
+    }
+    .render()?;
+    Ok(Html(html).into_response())
 }
 
 /// Error messages are rendered directly and never travel through the URL, so nobody can
 /// link to the dashboard with text of their choosing on it.
 async fn render_dashboard(
     state: &AppState,
-    account: Option<String>,
+    query: ListQuery,
     mut error: Option<String>,
 ) -> UiResult {
     let settings = state.store.settings().await?;
@@ -91,25 +94,24 @@ async fn render_dashboard(
         }
     };
     // Default to the mailbox of the first token, since that is where Bitwarden writes.
-    let wanted = account.or_else(|| tokens.first().map(|t| t.account_id.clone()));
+    let wanted = query
+        .account
+        .clone()
+        .or_else(|| tokens.first().map(|t| t.account_id.clone()));
     let selected = accounts
         .iter()
         .find(|a| Some(&a.id) == wanted.as_ref())
         .or(accounts.first())
         .map(|a| a.id.clone());
 
-    let aliases = match &selected {
-        Some(id) => match backend.aliases.list(id).await {
-            Ok(list) => list.into_iter().map(AliasRow::from).collect(),
-            Err(e) => {
-                error.get_or_insert(e.to_string());
-                Vec::new()
-            }
-        },
-        None => Vec::new(),
+    let account_id = selected.clone().unwrap_or_default();
+    let results = match &selected {
+        Some(id) => load_results(state, id, &query).await?,
+        None => Results::nothing(),
     };
 
     let mailboxes = account_options(&accounts, selected.as_deref());
+    let filter = filter_bar(&query, &query.filter(), &settings.domains);
     let domains: Vec<SelectOption> = settings
         .domains
         .into_iter()
@@ -124,10 +126,11 @@ async fn render_dashboard(
         wizard: false,
         mailbox_value: selected_value(&mailboxes),
         mailboxes,
-        account_id: selected.unwrap_or_default(),
+        account_id,
         domain_value: selected_value(&domains),
         domains,
-        aliases,
+        filter,
+        results,
         error,
     };
     Ok(render(page)?.into_response())
@@ -137,7 +140,11 @@ async fn render_dashboard(
 /// action failed, to that same list with the error shown.
 async fn back(state: &AppState, account: String, error: Option<String>) -> UiResult {
     if error.is_some() {
-        return render_dashboard(state, Some(account), error).await;
+        let query = ListQuery {
+            account: Some(account),
+            ..ListQuery::default()
+        };
+        return render_dashboard(state, query, error).await;
     }
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("account", &account);
@@ -147,10 +154,6 @@ async fn back(state: &AppState, account: String, error: Option<String>) -> UiRes
 fn failed_fragment(message: &str) -> UiResult {
     let toast = toast("error", "That didn't work", Some(message))?;
     Ok(([no_swap()], Html(toast)).into_response())
-}
-
-fn row_fragment(row: &AliasRow, account_id: &str) -> Result<String, UiError> {
-    Ok(AliasRowFragment { a: row, account_id }.render()?)
 }
 
 /// Fields of `POST /aliases`.
@@ -184,12 +187,20 @@ pub async fn create(
     } else {
         Err(crate::aliases::Error::UnknownDomain(form.domain.clone()))
     };
+    if let Ok(entry) = &result {
+        best_effort(
+            state
+                .store
+                .record_alias_created(&form.account, &entry.address())
+                .await,
+        );
+    }
     if !wants_fragment(&headers) {
         return back(&state, form.account, result.err().map(|e| e.to_string())).await;
     }
     match result {
         Ok(entry) => {
-            let row = AliasRow::from(entry);
+            let row = AliasRow::new(entry, Some(now()));
             let toast = toast("success", "Alias created", Some(&row.address))?;
             let html = row_fragment(&row, &form.account)? + &toast;
             Ok(([("hx-trigger-after-swap", "aliasCreated")], Html(html)).into_response())
@@ -228,7 +239,11 @@ pub async fn toggle(
         Ok(entry) => entry,
         Err(e) => return failed_fragment(&e.to_string()),
     };
-    let row = AliasRow::from(entry);
+    let created = state
+        .store
+        .alias_created_at(&form.account, &entry.address())
+        .await?;
+    let row = AliasRow::new(entry, created);
     let title = if row.enabled {
         "Alias enabled"
     } else {
@@ -257,6 +272,9 @@ pub async fn delete(
         .aliases
         .delete(&form.account, &form.address)
         .await;
+    if result.is_ok() {
+        best_effort(state.store.forget_alias(&form.account, &form.address).await);
+    }
     if !wants_fragment(&headers) {
         return back(&state, form.account, result.err().map(|e| e.to_string())).await;
     }

@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::aliases::{self, AliasEntry, NewAlias};
 use crate::stalwart;
 use crate::state::{AppState, Backend};
-use crate::store::Token;
+use crate::store::{Store, Token};
 
 /// Routes of the Addy.io-compatible API under `/api/v1`.
 pub fn routes() -> Router<AppState> {
@@ -80,6 +80,7 @@ impl From<aliases::Error> for ApiError {
 pub struct Authed {
     token: Token,
     backend: Arc<Backend>,
+    store: Store,
     domains: Vec<String>,
     _connection: tokio::sync::OwnedRwLockReadGuard<()>,
 }
@@ -119,6 +120,7 @@ impl FromRequestParts<AppState> for Authed {
         Ok(Self {
             token,
             backend,
+            store: state.store.clone(),
             domains: settings.domains,
             _connection: connection,
         })
@@ -175,6 +177,15 @@ async fn create(
             },
         )
         .await?;
+    // Stalwart records no creation date, so stalias keeps it for the search filters. The alias
+    // exists either way, so a failure here is only logged.
+    if let Err(e) = auth
+        .store
+        .record_alias_created(&auth.token.account_id, &entry.address())
+        .await
+    {
+        tracing::warn!("could not save alias metadata: {e}");
+    }
     Ok((
         StatusCode::CREATED,
         Json(json!({ "data": alias_json(&entry, &auth.token) })),
@@ -222,6 +233,9 @@ async fn remove(auth: Authed, Path(id): Path<String>) -> Result<StatusCode, ApiE
         .aliases
         .delete(&auth.token.account_id, &id)
         .await?;
+    if let Err(e) = auth.store.forget_alias(&auth.token.account_id, &id).await {
+        tracing::warn!("could not save alias metadata: {e}");
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

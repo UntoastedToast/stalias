@@ -1,6 +1,7 @@
 <tr class="row-in">
   <td class="font-mono text-[.85rem] font-medium break-all whitespace-normal">{{ a.address }}</td>
   <td class="wrap-anywhere whitespace-normal">{{ a.description }}</td>
+  <td class="text-muted-foreground">{% if a.created.is_empty() %}&ndash;{% else %}{{ a.created }}{% endif %}</td>
   <td>{% if a.enabled %}<span class="badge" data-variant="secondary">Active</span>{% else %}<span class="badge" data-variant="outline">Disabled</span>{% endif %}</td>
   <td class="text-end">
     <div class="inline-flex gap-2">

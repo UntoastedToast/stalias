@@ -21,6 +21,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(dashboard::page))
         .route("/aliases", post(dashboard::create))
+        .route("/aliases/list", get(dashboard::list))
         .route("/aliases/toggle", post(dashboard::toggle))
         .route("/aliases/delete", post(dashboard::delete))
         .route("/login", get(login::page).post(login::submit))

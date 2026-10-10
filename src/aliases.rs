@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 use rand::seq::IndexedRandom;
 use serde_json::{Map, Value, json};
 
+mod filter;
+
+pub use filter::{AliasFilter, Created, Sort, Status};
+
 use crate::stalwart::{self, Account, Alias, Client, Domain};
 
 const RANDOM_LEN: usize = 10;

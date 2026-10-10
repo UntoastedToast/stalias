@@ -54,16 +54,38 @@
   <header>
     <h2>Aliases</h2>
   </header>
-  <section>
-    <div class="table-container table-wrap">
-    <table class="table w-full min-w-[38rem] table-fixed">
-      <thead><tr><th class="w-[30%]">Address</th><th>Description</th><th class="w-26">Status</th><th class="w-56"></th></tr></thead>
-      <tbody id="alias-rows">
-        {% for a in aliases %}{% include "components/alias_row.html" %}{% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <p class="empty-hint text-sm text-muted-foreground">No aliases in this mailbox yet.</p>
+  <section class="grid gap-4">
+    <form id="alias-filter" method="get" action="/" class="grid gap-4" hx-get="/aliases/list" hx-target="#alias-results" hx-swap="outerHTML" hx-trigger="input changed delay:250ms from:#alias-search, change, submit" hx-sync="this:queue last" hx-push-url="false">
+      <input type="hidden" name="account" value="{{ account_id }}">
+      <div role="group" class="field">
+        <label for="alias-search">Search</label>
+        <div class="input-group">
+          <input id="alias-search" type="search" name="q" value="{{ filter.query }}" placeholder="Address or description" autocomplete="off">
+          <span role="group" data-align="start" aria-hidden="true" class="text-muted-foreground">{% include "icons/search.svg" %}</span>
+        </div>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2 {% if filter.multiple_domains %}lg:grid-cols-4{% else %}lg:grid-cols-3{% endif %}">
+        <div role="group" class="field">
+          <label id="filter-status-label">Status</label>
+          {{ m::select("filter-status", "status", filter.status, filter.status_value, "w-full [&>button]:w-full") }}
+        </div>
+        {% if filter.multiple_domains %}
+        <div role="group" class="field">
+          <label id="filter-domain-label">Domain</label>
+          {{ m::select("filter-domain", "domain", filter.domains, filter.domain_value, "w-full [&>button]:w-full") }}
+        </div>
+        {% endif %}
+        <div role="group" class="field">
+          <label id="filter-created-label">Created</label>
+          {{ m::select("filter-created", "created", filter.created, filter.created_value, "w-full [&>button]:w-full") }}
+        </div>
+        <div role="group" class="field">
+          <label id="filter-sort-label">Sort</label>
+          {{ m::select("filter-sort", "sort", filter.sort, filter.sort_value, "w-full [&>button]:w-full") }}
+        </div>
+      </div>
+    </form>
+    {% include "components/alias_results.html" %}
   </section>
 </div>
 {% endblock %}
