@@ -1,0 +1,148 @@
+@import "tailwindcss";
+@import "basecoat-css";
+
+/* Utility classes are generated from what the templates use. */
+@source "../src/web/templates";
+
+/* The UI font. Basecoat already lists "Geist Sans" first; this makes the app bring it along,
+   so every visitor sees the same typeface (Latin subset, SIL OFL, see geist-OFL.txt). */
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/static/geist-1.7.2.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--muted);
+    border-radius: calc(var(--radius) - 6px);
+    padding: 0.1rem 0.35rem;
+  }
+}
+
+/* Basecoat clips cards, which would cut off dropdowns that open inside them. */
+.card {
+  overflow: visible;
+}
+/* An open dropdown has to paint above the cards that follow its own card. */
+.card:has([data-popover][aria-hidden="false"]) {
+  position: relative;
+  z-index: 20;
+}
+
+/* Numbered how-to list: a circle with the step number next to each item. */
+.howto {
+  display: grid;
+  gap: 1.25rem;
+  counter-reset: step;
+  padding: 0.25rem 0 0.75rem;
+}
+.howto > li {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr;
+  gap: 0.75rem;
+  counter-increment: step;
+  position: relative;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.howto > li::before {
+  content: counter(step);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+/* A thin line joins the circles. */
+.howto > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 0.8125rem;
+  top: 2rem;
+  bottom: -1.1rem;
+  width: 1px;
+  background: var(--border);
+}
+
+/* A table without rows disappears, and the hint after it takes its place. */
+.table-wrap:not(:has(tbody > tr)) {
+  display: none;
+}
+.table-wrap:has(tbody > tr) ~ .empty-hint {
+  display: none;
+}
+
+/* Motion */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+    background: var(--accent);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page > * {
+  animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.page > :nth-child(2) {
+  animation-delay: 0.06s;
+}
+.page > :nth-child(3) {
+  animation-delay: 0.12s;
+}
+.page > :nth-child(4) {
+  animation-delay: 0.18s;
+}
+tr.row-in {
+  animation: row-in 0.4s ease backwards;
+}
+/* htmx adds this class to a row while it waits to be removed. */
+tr.htmx-swapping {
+  opacity: 0;
+  transform: translateX(14px);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.18s;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

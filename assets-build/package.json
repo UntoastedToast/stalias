@@ -1,0 +1,16 @@
+{
+  "name": "stalias-assets-build",
+  "private": true,
+  "description": "Builds src/web/static/app.css and src/web/static/basecoat.min.js. The output is committed, so building the Rust app needs no Node.",
+  "scripts": {
+    "test": "node --test app.test.mjs",
+    "build": "npm run build:css && npm run build:js",
+    "build:css": "tailwindcss -i styles.css -o ../src/web/static/app.css --minify",
+    "build:js": "node build-js.mjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "basecoat-css": "1.0.2",
+    "tailwindcss": "^4.1.0"
+  }
+}

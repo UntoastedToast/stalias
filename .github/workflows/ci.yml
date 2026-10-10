@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: assets-build/package-lock.json
+      - name: Generated static files are up to date
+        working-directory: assets-build
+        run: |
+          npm ci
+          npm test
+          npm run build
+          git diff --exit-code -- ../src/web/static
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - name: Live tests against a real Stalwart
+        run: |
+          eval "$(scripts/setup-test-instance.sh)"
+          cargo test -- --ignored --test-threads=1

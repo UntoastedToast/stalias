@@ -1,0 +1,34 @@
+{% extends "layouts/guest.html" %}
+{% import "components/macros.html" as m %}
+{% block title %}Setup · stalias{% endblock %}
+{% block width %}max-w-xl{% endblock %}
+{% block content %}
+{{ m::stepper(1) }}
+<div class="card">
+  <header>
+    <h2>Welcome to stalias</h2>
+    <p>stalias creates and switches off email aliases in your Stalwart mail server, for example from Bitwarden.
+       Setting it up takes four short steps. First, choose a password for this instance.</p>
+  </header>
+  <section>
+    <form method="post" action="/setup" hx-boost="false" class="grid gap-4">
+      {% if let Some(e) = error %}{{ m::alert(e, "", "") }}{% endif %}
+      {{ m::note("Where is the setup code?", "stalias printed it to its log when it started, in a line that begins with “First start”. It proves that you are the one who runs this server. Show the log with docker logs and the name of the stalias container, or open the log view of Coolify or Portainer. The code changes on every restart until the password is set.") }}
+      <div role="group" class="field">
+        <label for="code">Setup code</label>
+        <input id="code" class="input" type="text" name="code" autocomplete="off" required autofocus>
+      </div>
+      <div role="group" class="field">
+        <label for="password">Admin password</label>
+        <input id="password" class="input" type="password" name="password" autocomplete="new-password" minlength="8" required>
+        <p>At least 8 characters. You need it to sign in to this page.</p>
+      </div>
+      <div role="group" class="field">
+        <label for="confirm">Repeat password</label>
+        <input id="confirm" class="input" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+      </div>
+      <button type="submit" class="btn w-full">Continue {% include "icons/arrow-right.svg" %}</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

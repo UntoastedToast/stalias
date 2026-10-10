@@ -1,0 +1,23 @@
+# stalias next to an existing Stalwart container. Adjust the network name to the one
+# your Stalwart container uses, so that stalias can reach it as http://stalwart:8080.
+services:
+  stalias:
+    image: ghcr.io/untoastedtoast/stalias:latest
+    restart: unless-stopped
+    environment:
+      PORT: 8080            # optional
+      TRUST_PROXY: "true"   # only if a reverse proxy in front sets X-Forwarded-For
+    volumes:
+      - stalias-data:/data  # settings, API tokens and logins live here
+    ports:
+      - "127.0.0.1:8080:8080"   # or put it behind your reverse proxy instead
+    networks:
+      - mail
+
+volumes:
+  stalias-data:
+
+networks:
+  mail:
+    external: true
+    name: stalwart_default

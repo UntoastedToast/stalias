@@ -1,0 +1,43 @@
+{% extends "layouts/base.html" %}
+{% block layout %}
+{% if wizard %}
+<main>
+  <div class="page mx-auto flex max-w-xl flex-col gap-6 px-4 pt-10 pb-12">
+    <a class="flex items-center justify-center gap-3 text-2xl font-semibold tracking-[-0.01em]" href="/" aria-label="stalias"><span class="size-8 shrink-0">{% include "components/logo.html" %}</span><span>stalias</span></a>
+{% else %}
+<aside id="sidebar" class="sidebar" data-side="left">
+  <nav aria-label="Main navigation">
+    <header>
+      <a class="flex items-center gap-2.5 p-2 text-xl font-semibold tracking-[-0.01em]" href="/" aria-label="stalias"><span class="size-7 shrink-0">{% include "components/logo.html" %}</span><span>stalias</span></a>
+    </header>
+    <section class="scrollbar-sm">
+      <div role="group" aria-label="Manage">
+        <ul>
+          <li><a href="/" data-size="lg" {% block active_aliases %}{% endblock %}>{% include "icons/mail.svg" %}<span>Aliases</span></a></li>
+          <li><a href="/tokens" data-size="lg" {% block active_tokens %}{% endblock %}>{% include "icons/key-round.svg" %}<span>Tokens</span></a></li>
+          <li><a href="/settings" data-size="lg" {% block active_settings %}{% endblock %}>{% include "icons/settings.svg" %}<span>Settings</span></a></li>
+        </ul>
+      </div>
+    </section>
+    <footer>
+      <button type="button" class="btn w-full justify-start" data-variant="ghost" data-size="lg" data-theme-toggle data-keep-mobile-sidebar-open>
+        <span class="inline-flex items-center gap-2 dark:hidden">{% include "icons/moon.svg" %}Dark mode</span>
+        <span class="hidden items-center gap-2 dark:inline-flex">{% include "icons/sun.svg" %}Light mode</span>
+      </button>
+      <form method="post" action="/logout" hx-confirm="You will need the admin password to sign in again." data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-variant="primary">
+        <button type="submit" class="btn w-full justify-start" data-variant="ghost" data-size="lg">{% include "icons/log-out.svg" %}Log out</button>
+      </form>
+    </footer>
+  </nav>
+</aside>
+<main>
+  <div class="flex items-center gap-2 border-b px-4 py-2 md:hidden">
+    <button type="button" class="btn" data-variant="ghost" data-size="icon" data-sidebar-toggle aria-label="Open menu">{% include "icons/menu.svg" %}</button>
+    <a class="flex items-center gap-2.5 text-lg font-semibold tracking-[-0.01em]" href="/" aria-label="stalias"><span class="size-7 shrink-0">{% include "components/logo.html" %}</span><span>stalias</span></a>
+  </div>
+  <div class="page mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-6 pb-12">
+{% endif %}
+    {% block content %}{% endblock %}
+  </div>
+</main>
+{% endblock %}

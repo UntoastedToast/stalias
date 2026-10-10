@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Keep GitHub's language statistics and diffs about the Rust code.
+src/web/static/app.css linguist-generated
+src/web/static/basecoat.min.js linguist-generated
+src/web/static/htmx.min.js linguist-vendored
+Cargo.lock linguist-generated
+assets-build/package-lock.json linguist-generated
+src/web/static/*.woff2 binary linguist-vendored

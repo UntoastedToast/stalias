@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false, "historyCacheSize": 0}'>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg?v={{ crate::web::assets::VERSION }}">
+  <title>{% block title %}stalias{% endblock %}</title>
+  <link rel="preload" href="/static/geist-1.7.2.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/app.css?v={{ crate::web::assets::VERSION }}">
+  <script src="/static/app.js?v={{ crate::web::assets::VERSION }}"></script>
+  <script src="/static/htmx.min.js?v={{ crate::web::assets::VERSION }}" defer></script>
+  <script src="/static/basecoat.min.js?v={{ crate::web::assets::VERSION }}" defer></script>
+</head>
+<body class="antialiased" hx-boost="true" hx-history="false" hx-swap="innerHTML transition:true">
+  {% block layout %}{% endblock %}
+  <div id="toaster" class="toaster" data-align="end" hx-preserve="true"></div>
+  <dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <div class="w-[min(24rem,calc(100vw-2rem))]">
+      <header>
+        <h2 id="confirm-title">Are you sure?</h2>
+        <p id="confirm-text"></p>
+      </header>
+      <footer>
+        <button type="button" class="btn" data-variant="outline" data-dialog-cancel>Cancel</button>
+        <button type="button" class="btn" data-variant="destructive" data-dialog-ok>Continue</button>
+      </footer>
+    </div>
+  </dialog>
+</body>
+</html>

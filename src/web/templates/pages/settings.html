@@ -1,0 +1,99 @@
+{% extends "layouts/app.html" %}
+{% import "components/macros.html" as m %}
+{% block title %}Settings · stalias{% endblock %}
+{% block active_settings %}aria-current="page"{% endblock %}
+{% block content %}
+{% if wizard %}{{ m::stepper(2) }}{% endif %}
+<div class="card">
+  <header>
+    <h2>Connect to Stalwart</h2>
+    <p>stalias manages aliases through Stalwart's JMAP API (Stalwart 0.16 or newer).
+       It needs an API key that may do exactly what stalias does, and nothing else.</p>
+  </header>
+  <section class="accordion">
+    <details {% if wizard %}open{% endif %}>
+      <summary>Step by step: create the API key in Stalwart {% include "icons/chevron-down.svg" %}</summary>
+      <ol class="howto">
+        <li>
+          <div>
+            <p class="font-medium">Sign in to the Stalwart admin UI</p>
+            <p class="text-muted-foreground">Usually <code>https://your-mail-host/admin</code>. Use an administrator account.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Create a new API key</p>
+            <p class="text-muted-foreground">Open the <strong>Account</strong> section of the menu, then</p>
+            <p class="mt-1.5">{{ m::path("Credentials", "API Keys", "") }}</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Describe it</p>
+            <p class="text-muted-foreground">Set <strong>Description</strong> to the text below. Leave <strong>Expiration Date</strong>
+              empty, otherwise the key stops working at that date, and leave <strong>Allowed IPs</strong> empty.</p>
+            <div class="mt-2 rounded-md border">{{ m::copyrow("apikey-description", "Description", "stalias") }}</div>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Limit what the key may do</p>
+            <p class="text-muted-foreground">Under <strong>Permissions</strong> choose <strong>Replace all permissions</strong>,
+              then add exactly these six. Paste the short name on the right into the search field of the list to find each one.</p>
+            <div class="mt-2 divide-y rounded-md border">
+              {{ m::permrow("perm-1", "Sign in to the server", "authenticate") }}
+              {{ m::permrow("perm-2", "Accounts Management: Get accounts", "sysAccountGet") }}
+              {{ m::permrow("perm-3", "Accounts Management: Query accounts", "sysAccountQuery") }}
+              {{ m::permrow("perm-4", "Accounts Management: Update accounts", "sysAccountUpdate") }}
+              {{ m::permrow("perm-5", "Domains Management: Get domains", "sysDomainGet") }}
+              {{ m::permrow("perm-6", "Domains Management: Query domains", "sysDomainQuery") }}
+            </div>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Save it and copy the secret</p>
+            <p class="text-muted-foreground">Stalwart shows the <strong>Secret</strong> only once. Copy it now and paste it into the form below.</p>
+          </div>
+        </li>
+      </ol>
+      <div class="pb-1">{{ m::note("Keep the key private", "It can also reset the password of any mailbox. stalias stores it in its data volume.") }}</div>
+    </details>
+  </section>
+</div>
+<div class="card">
+  <header>
+    <h2>Your key</h2>
+    <p>"Test and save" checks the address and the permissions before anything is stored.</p>
+  </header>
+  <section>
+    <form method="post" action="/settings" class="grid gap-4">
+      {% if let Some(e) = error %}{{ m::alert(e, "", "") }}{% endif %}
+      <div role="group" class="field">
+        <label for="url">Stalwart URL</label>
+        <input id="url" class="input" type="url" name="url" value="{{ url }}" placeholder="http://stalwart:8080" required>
+        <p>Start with <code>http://</code> or <code>https://</code>. The address only has to work for stalias, it does not have to be public.
+          In the same Docker network use the container name, for example <code>http://stalwart:8080</code>.
+          Otherwise use the address of the admin UI without <code>/admin</code>.</p>
+        {% if key_saved %}<p>Changing the server URL revokes all stalias API tokens. You will need to choose domains and create new tokens. Updating only the API key keeps them.</p>{% endif %}
+      </div>
+      <div role="group" class="field">
+        <label for="key">API key (the secret)</label>
+        <input id="key" class="input" type="password" name="key" autocomplete="off"
+               placeholder="{% if key_saved %}Saved. Leave empty to keep it.{% else %}API_...{% endif %}"
+               {% if !key_saved %}required{% endif %}>
+      </div>
+      <div><button type="submit" class="btn">Test and save {% if wizard %}{% include "icons/arrow-right.svg" %}{% endif %}</button></div>
+    </form>
+  </section>
+</div>
+{% if !wizard %}
+<div class="card">
+  <header>
+    <h2>Alias domains</h2>
+    <p>Choose which Stalwart domains may be used for new aliases.</p>
+  </header>
+  <footer><a href="/settings/domains" class="btn" data-variant="outline">Choose domains</a></footer>
+</div>
+{% endif %}
+{% endblock %}

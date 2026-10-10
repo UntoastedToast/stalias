@@ -1,0 +1,12 @@
+{# Basecoat toast, delivered with an htmx out-of-band swap into #toaster. #}
+<div hx-swap-oob="beforeend:#toaster">
+  <div class="toast" role="{% if category == "error" %}alert{% else %}status{% endif %}" aria-atomic="true" aria-hidden="false" data-category="{{ category }}">
+    <div class="toast-content">
+      {% if category == "error" %}{% include "icons/circle-x.svg" %}{% else %}{% include "icons/circle-check.svg" %}{% endif %}
+      <section>
+        <h2>{{ title }}</h2>
+        {% if let Some(d) = description %}<p>{{ d }}</p>{% endif %}
+      </section>
+    </div>
+  </div>
+</div>

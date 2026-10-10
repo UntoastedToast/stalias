@@ -1,0 +1,103 @@
+{# Basecoat select (markup follows basecoat-css/templates/jinja/select.html.jinja). #}
+{% macro select(id, name, options, selected, cls) %}
+<div class="select {{ cls }}" id="{{ id }}">
+  <button type="button" id="{{ id }}-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="{{ id }}-listbox">
+    <span class="truncate">{% for o in options %}{% if o.selected %}{{ o.label }}{% endif %}{% endfor %}</span>
+    {% include "icons/chevrons-up-down.svg" %}
+  </button>
+  <div id="{{ id }}-popover" data-popover aria-hidden="true">
+    <div role="listbox" id="{{ id }}-listbox" aria-orientation="vertical" aria-labelledby="{{ id }}-trigger">
+      {% for o in options %}<div id="{{ id }}-option-{{ loop.index }}" role="option" data-value="{{ o.value }}" {% if o.selected %}aria-selected="true"{% endif %}>{{ o.label }}</div>{% endfor %}
+    </div>
+  </div>
+  <input type="hidden" name="{{ name }}" value="{{ selected }}">
+</div>
+{% endmacro %}
+
+{# Basecoat alert; an optional link (leave empty for none) points to where the problem can be fixed. #}
+{% macro alert(message, href, label) %}
+<div class="alert" data-variant="destructive" role="alert">
+  {% include "icons/circle-alert.svg" %}
+  <h2>Something went wrong</h2>
+  <section>{{ message }}</section>
+  {% if !href.is_empty() %}<footer><a class="btn" data-variant="outline" data-size="sm" href="{{ href }}">{{ label }}</a></footer>{% endif %}
+</div>
+{% endmacro %}
+
+{# Basecoat alert in its neutral variant, for hints. #}
+{% macro note(title, text) %}
+<div class="alert">
+  {% include "icons/info.svg" %}
+  <h2>{{ title }}</h2>
+  <section>{{ text }}</section>
+</div>
+{% endmacro %}
+
+{# A menu path such as "Account › Credentials › API Keys", drawn with Basecoat's breadcrumb. Pass "" for a missing third part. #}
+{% macro path(a, b, c) %}
+<nav class="breadcrumb inline-flex max-w-full rounded-md border bg-muted/40 px-2 py-1 align-middle" aria-label="Menu path">
+  <ol>
+    <li class="font-medium text-foreground">{{ a }}</li>
+    <li aria-hidden="true">{% include "icons/chevron-right.svg" %}</li>
+    <li class="{% if c.is_empty() %}font-medium text-foreground{% endif %}">{{ b }}</li>
+    {% if !c.is_empty() %}
+    <li aria-hidden="true">{% include "icons/chevron-right.svg" %}</li>
+    <li class="font-medium text-foreground">{{ c }}</li>
+    {% endif %}
+  </ol>
+</nav>
+{% endmacro %}
+
+{# A value to type into another program, with a copy button. #}
+{% macro copyrow(id, label, value) %}
+<div class="flex items-center justify-between gap-3 px-3 py-2">
+  <span class="text-sm text-muted-foreground">{{ label }}</span>
+  <span class="flex min-w-0 items-center gap-1">
+    <code id="{{ id }}" class="break-all">{{ value }}</code>
+    <button type="button" class="btn group" data-variant="ghost" data-size="icon-xs" data-copy="{{ id }}" aria-label="Copy {{ label }}" title="Copy">
+      <span class="group-data-[copied]:hidden">{% include "icons/copy.svg" %}</span>
+      <span class="hidden group-data-[copied]:inline">{% include "icons/check.svg" %}</span>
+    </button>
+  </span>
+</div>
+{% endmacro %}
+
+{# A Stalwart permission: the name shown in its picker, and the technical name to copy into the picker's search field. #}
+{% macro permrow(id, name, tech) %}
+<div class="flex items-center justify-between gap-3 px-3 py-2">
+  <span class="text-sm">{{ name }}</span>
+  <span class="flex shrink-0 items-center gap-1">
+    <code id="{{ id }}">{{ tech }}</code>
+    <button type="button" class="btn group" data-variant="ghost" data-size="icon-xs" data-copy="{{ id }}" aria-label="Copy {{ tech }}" title="Copy">
+      <span class="group-data-[copied]:hidden">{% include "icons/copy.svg" %}</span>
+      <span class="hidden group-data-[copied]:inline">{% include "icons/check.svg" %}</span>
+    </button>
+  </span>
+</div>
+{% endmacro %}
+
+{# One entry of the progress bar at the top of the setup wizard. #}
+{% macro step(n, label, current, href) %}
+<li class="flex items-center gap-2 {% if n < 4 %}flex-1{% endif %}">
+  {% if n < current %}<a href="{{ href }}" class="flex items-center gap-2" aria-label="Back to: {{ label }}">{% else %}<span class="flex items-center gap-2" {% if n == current %}aria-current="step"{% endif %}>{% endif %}
+    <span class="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-medium
+      {% if n < current %}bg-primary text-primary-foreground{% else if n == current %}border-2 border-primary text-primary{% else %}border text-muted-foreground{% endif %}">
+      {% if n < current %}<span class="[&>svg]:size-3.5">{% include "icons/check.svg" %}</span>{% else %}{{ n }}{% endif %}
+    </span>
+    <span class="text-sm {% if n == current %}font-medium{% else %}hidden text-muted-foreground sm:inline{% endif %}">{{ label }}</span>
+  {% if n < current %}</a>{% else %}</span>{% endif %}
+  {% if n < 4 %}<span class="h-px flex-1 {% if n < current %}bg-primary{% else %}bg-border{% endif %}" aria-hidden="true"></span>{% endif %}
+</li>
+{% endmacro %}
+
+{# Where the user is in the first-run wizard (1 to 4). #}
+{% macro stepper(current) %}
+<nav aria-label="Setup progress">
+  <ol class="flex items-center gap-2">
+    {{ step(1, "Password", current, "") }}
+    {{ step(2, "Stalwart", current, "/settings") }}
+    {{ step(3, "Domains", current, "/settings/domains") }}
+    {{ step(4, "Token", current, "/tokens") }}
+  </ol>
+</nav>
+{% endmacro %}

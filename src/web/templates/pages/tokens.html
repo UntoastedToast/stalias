@@ -1,0 +1,123 @@
+{% extends "layouts/app.html" %}
+{% import "components/macros.html" as m %}
+{% block title %}Tokens · stalias{% endblock %}
+{% block active_tokens %}aria-current="page"{% endblock %}
+{% block content %}
+{% if wizard %}{{ m::stepper(4) }}{% endif %}
+{% if let Some(t) = new_token %}
+<div class="card">
+  <header>
+    <h2>Token created</h2>
+    <p>Copy it now, it is not shown again. It creates aliases in the mailbox <strong>{{ t.account_name }}</strong>.</p>
+  </header>
+  <section class="grid gap-5">
+    <div class="input-group">
+      <input id="new-token" type="text" readonly value="{{ t.value }}" aria-label="API token">
+      <button type="button" class="btn group" data-variant="ghost" data-size="icon-xs" data-align="end" data-copy="new-token" aria-label="Copy token" title="Copy">
+        <span class="group-data-[copied]:hidden">{% include "icons/copy.svg" %}</span>
+        <span class="hidden group-data-[copied]:inline">{% include "icons/check.svg" %}</span>
+      </button>
+    </div>
+    <div class="grid gap-3">
+      <h3 class="font-medium">Now set it up in Bitwarden</h3>
+      <ol class="howto">
+        <li>
+          <div>
+            <p class="font-medium">Open the generator</p>
+            <p class="mt-1.5">{{ m::path("Tools", "Generator", "") }}</p>
+            <p class="mt-1.5 text-muted-foreground">Choose <strong>Username</strong>, set the type to <strong>Forwarded email alias</strong> and the service to <strong>Addy.io</strong>.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Enter these three values</p>
+            <div class="mt-2 divide-y rounded-md border">
+              {{ m::copyrow("bw-domain", "Email domain name", default_domain) }}
+              <div class="flex items-center justify-between gap-3 px-3 py-2">
+                <span class="text-sm text-muted-foreground">API access token</span>
+                <span class="text-sm">the token above</span>
+              </div>
+              {{ m::copyrow("bw-url", "Self-host server URL", base_url) }}
+            </div>
+          </div>
+        </li>
+        <li>
+          <div>
+            <p class="font-medium">Generate an alias</p>
+            <p class="text-muted-foreground">Bitwarden asks stalias for a new alias. It shows up under <a class="underline underline-offset-4" href="/">Aliases</a>, where you can switch it off or delete it later.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+    {% if wizard %}<div><a href="/" class="btn">Finish setup {% include "icons/arrow-right.svg" %}</a></div>{% endif %}
+  </section>
+</div>
+{% endif %}
+<div class="card">
+  <header>
+    <h2>API tokens</h2>
+    <p>A token lets Bitwarden (or any Addy.io-compatible client) create aliases in one mailbox.
+       Create one token per mailbox you want to use.</p>
+  </header>
+  <section class="grid gap-4">
+    {% if let Some(e) = error %}{{ m::alert(e, "/settings", "Open settings") }}{% endif %}
+    {% if no_accounts %}{{ m::alert("Stalwart has no mailbox yet. In its admin UI open Management › Directory › Accounts, create one, then reload this page.", "", "") }}{% endif %}
+    {% if wizard %}{% if new_token.is_none() %}
+    <ol class="howto">
+      <li>
+        <div>
+          <p class="font-medium">Choose a mailbox</p>
+          <p class="text-muted-foreground">Aliases created with this token land in that mailbox. The list comes from Stalwart.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <p class="font-medium">Name the token and create it</p>
+          <p class="text-muted-foreground">Use a label you will recognise, for example <em>Bitwarden</em>.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <p class="font-medium">Copy the token into Bitwarden</p>
+          <p class="text-muted-foreground">stalias shows it once, together with the values Bitwarden needs.</p>
+        </div>
+      </li>
+    </ol>
+    {% endif %}{% endif %}
+    <form method="post" action="/tokens" class="flex flex-wrap items-end gap-4">
+      <div role="group" class="field min-w-0 flex-1 basis-48">
+        <label id="token-mailbox-label">Mailbox</label>
+        {{ m::select("token-mailbox", "account_id", accounts, account_value, "w-full [&>button]:w-full") }}
+      </div>
+      <div role="group" class="field min-w-0 flex-1 basis-48">
+        <label for="token-label">Label</label>
+        <div class="input-group">
+          <input id="token-label" type="text" name="label" placeholder="e.g. Bitwarden" autocomplete="off">
+          <button type="submit" class="btn" data-variant="secondary" data-size="xs" data-align="end">Create token</button>
+        </div>
+      </div>
+    </form>
+    <div class="table-container table-wrap">
+    <table class="table w-full min-w-[30rem] table-fixed">
+      <thead><tr><th>Label</th><th>Mailbox</th><th class="w-32"></th></tr></thead>
+      <tbody id="token-rows">
+        {% for t in tokens %}
+        <tr class="row-in">
+          <td class="font-medium break-all whitespace-normal">{{ t.label }}</td>
+          <td class="break-all whitespace-normal">{{ t.account_name }}</td>
+          <td class="text-end">
+            <div class="inline-flex gap-2">
+              <form method="post" action="/tokens/{{ t.id }}/delete" hx-post="/tokens/{{ t.id }}/delete" hx-target="closest tr" hx-swap="outerHTML swap:250ms" hx-confirm="Anything using this token will stop working." data-confirm-title="Revoke token?" data-confirm-ok="Revoke">
+                <button type="submit" class="btn w-23" data-variant="destructive" data-size="sm">Revoke</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if wizard && !tokens.is_empty() && new_token.is_none() %}<div><a href="/" class="btn">Finish setup {% include "icons/arrow-right.svg" %}</a></div>{% endif %}
+  </section>
+</div>
+{% endblock %}

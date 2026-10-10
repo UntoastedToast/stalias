@@ -1,0 +1,8 @@
+target
+.git
+.github
+docs
+assets-build
+scripts
+tests
+*.md

@@ -1,0 +1,69 @@
+{% extends "layouts/app.html" %}
+{% import "components/macros.html" as m %}
+{% block title %}Aliases · stalias{% endblock %}
+{% block active_aliases %}aria-current="page"{% endblock %}
+{% block content %}
+{% if let Some(e) = error %}{{ m::alert(e, "/settings", "Open settings") }}{% endif %}
+<div class="card">
+  <header>
+    <h2>Mailbox</h2>
+    <p>Aliases deliver into the selected mailbox.</p>
+  </header>
+  <section>
+    <form method="get" action="/" hx-get="/" hx-trigger="change" hx-target="body" hx-push-url="true">
+      {{ m::select("mailbox", "account", mailboxes, mailbox_value, "w-full [&>button]:w-full") }}
+    </form>
+  </section>
+</div>
+
+<div class="card">
+  <header>
+    <h2>New alias</h2>
+    <p>Leave the name empty to get a random address.</p>
+  </header>
+  <section>
+    <form method="post" action="/aliases" class="grid gap-4" hx-post="/aliases" hx-target="#alias-rows" hx-swap="afterbegin" data-reset>
+      <input type="hidden" name="account" value="{{ account_id }}">
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div role="group" class="field">
+          <label for="alias-name">Name</label>
+          <div class="input-group">
+            <input id="alias-name" type="text" name="local_part" placeholder="Random" pattern="[a-z0-9._\-]*" autocomplete="off">
+            {% if domains.len() == 1 %}<span data-align="end">@{{ domains[0].label }}</span>{% endif %}
+          </div>
+        </div>
+        <div role="group" class="field">
+          <label for="alias-description">Description</label>
+          <input id="alias-description" class="input" type="text" name="description" placeholder="Optional" autocomplete="off">
+        </div>
+      </div>
+      {% if domains.len() == 1 %}
+      <input type="hidden" name="domain" value="{{ domain_value }}">
+      {% else %}
+      <div role="group" class="field">
+        <label id="domain-label">Domain</label>
+        {{ m::select("domain", "domain", domains, domain_value, "w-full [&>button]:w-full") }}
+      </div>
+      {% endif %}
+      <div><button type="submit" class="btn">{% include "icons/plus.svg" %}Create alias</button></div>
+    </form>
+  </section>
+</div>
+
+<div class="card">
+  <header>
+    <h2>Aliases</h2>
+  </header>
+  <section>
+    <div class="table-container table-wrap">
+    <table class="table w-full min-w-[38rem] table-fixed">
+      <thead><tr><th class="w-[30%]">Address</th><th>Description</th><th class="w-26">Status</th><th class="w-56"></th></tr></thead>
+      <tbody id="alias-rows">
+        {% for a in aliases %}{% include "components/alias_row.html" %}{% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="empty-hint text-sm text-muted-foreground">No aliases in this mailbox yet.</p>
+  </section>
+</div>
+{% endblock %}

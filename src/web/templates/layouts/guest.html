@@ -1,0 +1,9 @@
+{% extends "layouts/base.html" %}
+{% block layout %}
+<main>
+  <div class="page mx-auto flex {% block width %}max-w-[26rem]{% endblock %} flex-col gap-6 px-4 pt-16 pb-12">
+    <a class="flex items-center justify-center gap-3 text-2xl font-semibold tracking-[-0.01em]" href="/" aria-label="stalias"><span class="size-8 shrink-0">{% include "components/logo.html" %}</span><span>stalias</span></a>
+    {% block content %}{% endblock %}
+  </div>
+</main>
+{% endblock %}

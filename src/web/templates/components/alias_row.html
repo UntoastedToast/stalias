@@ -1,0 +1,24 @@
+<tr class="row-in">
+  <td class="font-mono text-[.85rem] font-medium break-all whitespace-normal">{{ a.address }}</td>
+  <td class="wrap-anywhere whitespace-normal">{{ a.description }}</td>
+  <td>{% if a.enabled %}<span class="badge" data-variant="secondary">Active</span>{% else %}<span class="badge" data-variant="outline">Disabled</span>{% endif %}</td>
+  <td class="text-end">
+    <div class="inline-flex gap-2">
+      <form method="post" action="/aliases/toggle" hx-post="/aliases/toggle" hx-target="closest tr" hx-swap="outerHTML">
+        <input type="hidden" name="account" value="{{ account_id }}">
+        <input type="hidden" name="address" value="{{ a.address }}">
+        <input type="hidden" name="enabled" value="{{ !a.enabled }}">
+        {% if a.enabled %}
+        <button type="submit" class="btn w-27" data-variant="outline" data-size="sm">{% include "icons/power-off.svg" %}Disable</button>
+        {% else %}
+        <button type="submit" class="btn w-27" data-size="sm">{% include "icons/power.svg" %}Enable</button>
+        {% endif %}
+      </form>
+      <form method="post" action="/aliases/delete" hx-post="/aliases/delete" hx-target="closest tr" hx-swap="outerHTML swap:250ms" hx-confirm="{{ a.address }} will be removed and mail sent to it will bounce." data-confirm-title="Delete alias?" data-confirm-ok="Delete">
+        <input type="hidden" name="account" value="{{ account_id }}">
+        <input type="hidden" name="address" value="{{ a.address }}">
+        <button type="submit" class="btn w-23" data-variant="destructive" data-size="sm" aria-label="Delete {{ a.address }}">{% include "icons/trash-2.svg" %}Delete</button>
+      </form>
+    </div>
+  </td>
+</tr>

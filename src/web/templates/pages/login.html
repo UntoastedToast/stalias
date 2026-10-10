@@ -1,0 +1,21 @@
+{% extends "layouts/guest.html" %}
+{% import "components/macros.html" as m %}
+{% block title %}Log in · stalias{% endblock %}
+{% block content %}
+<div class="card">
+  <header>
+    <h2>Log in</h2>
+    <p>Enter the admin password of this stalias instance.</p>
+  </header>
+  <section>
+    <form method="post" action="/login" hx-boost="false" class="grid gap-4">
+      {% if let Some(e) = error %}{{ m::alert(e, "", "") }}{% endif %}
+      <div role="group" class="field">
+        <label for="password">Password</label>
+        <input id="password" class="input" type="password" name="password" autocomplete="current-password" required autofocus>
+      </div>
+      <button type="submit" class="btn w-full">Log in</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

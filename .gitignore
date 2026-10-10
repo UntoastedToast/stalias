@@ -1,0 +1,24 @@
+# Rust
+/target
+*.profraw
+
+# Runtime data (SQLite database, local config)
+/data
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+
+# Frontend tooling
+node_modules/
+
+# Editors, OS and tools
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+*.log
