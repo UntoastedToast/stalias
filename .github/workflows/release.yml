@@ -26,7 +26,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Image names must be lower case, which workflow expressions cannot do.
       - name: Prepare
         id: prep
