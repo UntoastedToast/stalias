@@ -9,6 +9,9 @@ use axum::routing::get;
 
 use crate::state::AppState;
 
+/// The version of stalias, shown in the sidebar.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod addy;
 pub mod assets;
 mod ui;

@@ -906,6 +906,12 @@ async fn dashboard_has_the_search_bar_and_deleted_aliases_lose_their_date() {
     assert!(page.body.contains("id=\"alias-search\""));
     assert!(page.body.contains("hx-get=\"/aliases/list\""));
     assert!(page.body.contains("No aliases yet"));
+    // The sidebar names the running version and links to the source code (AGPL).
+    assert!(page.body.contains(&format!(">v{}</a>", web::APP_VERSION)));
+    assert!(
+        page.body
+            .contains("github.com/UntoastedToast/stalias\" target")
+    );
 
     let created = send(
         &h.app,

@@ -6,6 +6,11 @@
   </picture>
 </h1>
 
+<p align="center">
+  <a href="https://github.com/UntoastedToast/stalias/releases"><img src="https://img.shields.io/github/v/release/UntoastedToast/stalias?include_prereleases&label=version" alt="Latest version"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/built%20with-Rust-dea584?logo=rust&logoColor=white" alt="Built with Rust"></a>
+</p>
+
 Email aliases for [Stalwart Mail Server](https://stalw.art), created from your password manager.
 
 stalias provides an [Addy.io](https://addy.io)-compatible API for creating and managing
@@ -202,12 +207,16 @@ classes in `src/web/templates/` or `assets-build/styles.css`, run
 [docs/stalwart-0.16-notes.md](docs/stalwart-0.16-notes.md) documents Stalwart's alias API,
 including renumbered indexes, the lack of optimistic locking and permissions.
 
-## Inspired by
+## Credits
 
 [staliaswarden](https://github.com/romdim/staliaswarden) by romdim and its
 [Stalwart 0.16 fork](https://github.com/goingdark-social/staliaswarden) by goingdark-social
 introduced the idea of connecting Bitwarden to Stalwart. stalias uses regular account
 aliases instead of Enterprise-only masked emails and shares no code with either project.
+
+The web UI uses [Basecoat](https://basecoatui.com) (MIT), [htmx](https://htmx.org) (0BSD),
+[Tailwind CSS](https://tailwindcss.com) (MIT), [Lucide](https://lucide.dev) icons (ISC) and the
+[Geist](https://vercel.com/font) font (SIL OFL 1.1).
 
 ## License
 

@@ -27,6 +27,14 @@
       <form method="post" action="/logout" hx-confirm="You will need the admin password to sign in again." data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-variant="primary">
         <button type="submit" class="btn w-full justify-start" data-variant="ghost" data-size="lg">{% include "icons/log-out.svg" %}Log out</button>
       </form>
+      {# Same inset as the buttons above (1px border + 10px padding), so the line, the icons and the badge share one edge. #}
+      <div class="px-[11px]">
+        <hr role="separator" class="mx-0">
+        <div class="flex items-center justify-between pb-1">
+          <a class="btn border-0 px-0 text-muted-foreground hover:text-foreground" data-variant="link" data-size="sm" href="https://github.com/UntoastedToast/stalias" target="_blank" rel="noopener">{% include "icons/github.svg" %}Source code</a>
+          <a class="badge text-muted-foreground" data-variant="outline" href="https://github.com/UntoastedToast/stalias/releases/tag/v{{ crate::web::APP_VERSION }}" target="_blank" rel="noopener">v{{ crate::web::APP_VERSION }}</a>
+        </div>
+      </div>
     </footer>
   </nav>
 </aside>
