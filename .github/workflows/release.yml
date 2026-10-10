@@ -48,7 +48,7 @@ jobs:
           # an index and complicate the merge into one multi-arch image.
           provenance: false
           sbom: false
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.prep.outputs.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -121,7 +121,7 @@ jobs:
           IMAGE: ${{ steps.prep.outputs.image }}
           DIGEST: ${{ steps.inspect.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ steps.prep.outputs.image }}
           subject-digest: ${{ steps.inspect.outputs.digest }}
