@@ -12,6 +12,11 @@ RUN touch src/main.rs src/lib.rs && cargo build --release \
     && mkdir /data-dir
 
 FROM gcr.io/distroless/static-debian12:nonroot
+# Links the package on ghcr.io to this repository and describes it.
+LABEL org.opencontainers.image.title="stalias" \
+      org.opencontainers.image.description="Bitwarden/Addy.io-compatible alias manager for Stalwart Mail Server" \
+      org.opencontainers.image.source="https://github.com/UntoastedToast/stalias" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /src/target/release/stalias /stalias
 COPY --from=build --chown=nonroot:nonroot /data-dir /data
 ENV PORT=8080 DATA_DIR=/data

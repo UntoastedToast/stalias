@@ -71,6 +71,20 @@ to find the required credentials as you work through four steps:
 3. Pick the domains that may be used for aliases.
 4. Create an API token for a mailbox and copy the Bitwarden settings shown in the wizard.
 
+### Verify the image
+
+Release images are built by GitHub Actions and carry a signed build provenance attestation. The
+multi-arch image is also signed with [cosign](https://github.com/sigstore/cosign) (keyless). Check
+either before you run it:
+
+```sh
+gh attestation verify oci://ghcr.io/untoastedtoast/stalias:latest --owner UntoastedToast
+
+cosign verify ghcr.io/untoastedtoast/stalias:latest \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/UntoastedToast/stalias/\.github/workflows/release\.yml@refs/tags/v'
+```
+
 ### The Stalwart API key
 
 Create an API key in Stalwart's admin UI and replace its permissions with exactly this list:

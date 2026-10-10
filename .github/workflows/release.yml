@@ -1,6 +1,8 @@
 name: Release image
 
 # Publishes a multi-arch image to ghcr.io/<owner>/stalias when a version tag is pushed.
+# Every platform image gets a build provenance attestation, and the final multi-arch image is
+# signed with cosign (keyless, through GitHub's OIDC identity) and attested as well.
 on:
   push:
     tags: ["v*"]
@@ -21,6 +23,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       # Image names must be lower case, which workflow expressions cannot do.
@@ -40,6 +44,15 @@ jobs:
           outputs: type=image,name=${{ steps.prep.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          # The attestation below replaces BuildKit's own, which would turn each digest into
+          # an index and complicate the merge into one multi-arch image.
+          provenance: false
+          sbom: false
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.prep.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -58,6 +71,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - name: Prepare
         id: prep
@@ -68,6 +83,7 @@ jobs:
           pattern: digests-*
           merge-multiple: true
       - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
       - uses: docker/metadata-action@v5
         id: meta
         with:
@@ -91,4 +107,22 @@ jobs:
           for digest in *; do digests+=("$IMAGE@sha256:$digest"); done
           docker buildx imagetools create "${tags[@]}" "${digests[@]}"
       - name: Inspect
-        run: docker buildx imagetools inspect ${{ steps.prep.outputs.image }}:${{ steps.meta.outputs.version }}
+        id: inspect
+        env:
+          IMAGE: ${{ steps.prep.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      # Signing the digest covers every tag that points to it.
+      - name: Sign the image
+        env:
+          IMAGE: ${{ steps.prep.outputs.image }}
+          DIGEST: ${{ steps.inspect.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.prep.outputs.image }}
+          subject-digest: ${{ steps.inspect.outputs.digest }}
+          push-to-registry: true
