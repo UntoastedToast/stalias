@@ -13,21 +13,13 @@
 
 Email aliases for [Stalwart Mail Server](https://stalw.art), created from your password manager.
 
-stalias provides an [Addy.io](https://addy.io)-compatible API for creating and managing
-Stalwart aliases. It was originally built for Bitwarden's "Forwarded email alias"
-generator. Other clients can use the supported API endpoints too, provided they let you
-set a custom Addy.io server URL.
+stalias provides an [Addy.io](https://addy.io)-compatible API for Stalwart. It was built for
+Bitwarden's "Forwarded email alias" generator. Other clients can use it if they support a
+custom Addy.io server URL and the endpoints in the [API reference](docs/api.md).
 
-Create a separate address for each new login and receive its mail in your existing
-mailbox. You can disable or delete individual aliases through the web UI or API, and search
-them by address or description (Bitwarden puts the website into the description), filter by
-status, domain and creation date, and sort them.
-Disabling an alias stops incoming mail immediately: Stalwart rejects it with
-`550 Mailbox does not exist`.
-
-A built-in setup wizard guides you through configuration in the browser, with detailed
-instructions at each step. It explains how to connect Stalwart, select alias domains and
-create a mailbox token, then shows the settings to enter in Bitwarden.
+Create a separate address for each login and receive its mail in your existing mailbox.
+Use the web UI to search, filter, disable or delete aliases. Disabling an alias makes
+Stalwart reject incoming mail with `550 Mailbox does not exist`.
 
 <p>
   <picture>
@@ -36,14 +28,13 @@ create a mailbox token, then shows the settings to enter in Bitwarden.
   </picture>
 </p>
 
-- Works with the Community edition of Stalwart 0.16 or newer, using your existing mail
-  server and mail ports without a catch-all.
-- Stalwart stores the aliases alongside your existing users, domains and mailboxes.
-- Runs in a container of about 20 MB with one volume.
+- Works with Stalwart Community 0.16 or newer, using your existing mail server and ports.
+- Stores aliases in Stalwart and runs in a container of about 20 MB with one data volume.
+- Alias domains must have no catch-all, so disabled aliases stop receiving mail.
 
 ## Quick start
 
-stalias runs as its own container next to Stalwart.
+Run stalias next to your Stalwart container:
 
 ```sh
 docker run -d --name stalias \
@@ -53,58 +44,23 @@ docker run -d --name stalias \
   ghcr.io/untoastedtoast/stalias:latest
 ```
 
-You can also run it as a Compose service ([example](docs/examples/compose.yml)), a Coolify
-application using the image, or a Portainer stack. For production, put it behind a reverse
-proxy with HTTPS.
+You can also use the [Compose example](docs/examples/compose.yml) or deploy the image
+with Coolify or Portainer. For production, use HTTPS and follow the
+[reverse proxy instructions](docs/configuration.md#reverse-proxy).
 
-Forward `Host` and `X-Forwarded-Proto` so stalias displays the correct server URL. Preserve
-the original `Host`, or pass it in `X-Forwarded-Host`. Over plain HTTP, browsers send no
-`Sec-Fetch-Site` header, so stalias compares `Origin` with `Host`. If the proxy rewrites
-`Host`, every form submission fails with "Cross-site request refused". In nginx, use
-`proxy_set_header Host $http_host;`. (`$host` drops the port, which breaks every setup that
-uses a port other than 80 or 443.)
+Open `http://localhost:8080` and get the setup code with `docker logs stalias`.
+The browser wizard explains each of its four steps:
 
-Set `TRUST_PROXY=true` and have the proxy set `X-Forwarded-For` so the login rate limit
-counts each client separately. Otherwise, all requests count as coming from the proxy,
-and ten wrong passwords across any clients lock everyone out for a minute.
+1. Choose an admin password with 12 to 128 characters and no spaces. stalias rejects guessable and leaked passwords.
+2. Connect Stalwart using its URL and an API key with the [required permissions](docs/configuration.md#stalwart-api-key).
+3. Select the domains allowed for aliases.
+4. Create a mailbox token and copy the Bitwarden settings.
 
-Open the web UI to begin setup. On its first start, stalias prints a setup code to the
-container log (`docker logs stalias`). The setup wizard explains what to enter and where
-to find the required credentials as you work through four steps:
+stalias stores the Stalwart API key in plain text in the data volume. The key can change
+every mailbox, so protect the volume and admin UI. See [configuration and deployment](docs/configuration.md)
+for environment variables, image verification and operational limits.
 
-1. Choose an admin password (protected by the setup code).
-2. Connect to Stalwart with its URL and an API key. stalias tests the connection before it
-   saves anything.
-3. Pick the domains that may be used for aliases.
-4. Create an API token for a mailbox and copy the Bitwarden settings shown in the wizard.
-
-### Verify the image
-
-Release images are built by GitHub Actions and carry a signed build provenance attestation. The
-multi-arch image is also signed with [cosign](https://github.com/sigstore/cosign) (keyless). Check
-either before you run it:
-
-```sh
-gh attestation verify oci://ghcr.io/untoastedtoast/stalias:latest --owner UntoastedToast
-
-cosign verify ghcr.io/untoastedtoast/stalias:latest \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/UntoastedToast/stalias/\.github/workflows/release\.yml@refs/tags/v'
-```
-
-### The Stalwart API key
-
-Create an API key in Stalwart's admin UI and replace its permissions with exactly this list:
-
-`authenticate`, `sysAccountGet`, `sysAccountQuery`, `sysAccountUpdate`, `sysDomainGet`,
-`sysDomainQuery`
-
-The `sysAccountUpdate` permission also allows password resets for any mailbox. Treat the
-key as a credential with write access to your mailboxes. It cannot grant roles or delete
-accounts. stalias stores it in plain text in the database on the data volume. The database
-file is created with read access limited to its owner; protect the volume and the web UI.
-
-### Bitwarden
+## Bitwarden
 
 Generator → Username → type **Forwarded email alias** → service **Addy.io**, then:
 
@@ -114,103 +70,25 @@ Generator → Username → type **Forwarded email alias** → service **Addy.io*
 | API access token | the token from stalias |
 | Self-host server URL | the public address of stalias |
 
-Create a separate token for each mailbox you want to use. Each token belongs to one
-mailbox, which receives mail sent to aliases created with that token.
+Create a token for each mailbox you want to use. Aliases created with that token deliver
+mail to that mailbox.
 
-## API
+## Admin password
 
-stalias implements the following alias management endpoints from the [Addy.io API](https://app.addy.io/docs).
-Authenticate requests with `Authorization: Bearer <token>`:
-
-| Method | Path | |
-| --- | --- | --- |
-| `POST` | `/api/v1/aliases` | create (`domain`, `description`, `format`: `random_words`, `random_characters` or `custom` + `local_part`) |
-| `GET` | `/api/v1/aliases` | list the token's aliases |
-| `GET` `PATCH` `DELETE` | `/api/v1/aliases/{id}` | show, change the description, delete |
-| `POST` | `/api/v1/active-aliases` | enable (`{"id": ...}`) |
-| `DELETE` | `/api/v1/active-aliases/{id}` | disable |
-
-The alias `id` is its full email address because Stalwart has no separate alias ID.
-Addy.io's forwarding features, including recipients, labels and statistics, don't apply
-here and are omitted.
-
-Bitwarden's generator sends `POST /api/v1/aliases` with `{domain, description}` and reads
-`data.email`, which stalias includes in its response. Since Bitwarden sends no `format`, the
-name follows the alias style set in stalias (see [Configuration](#configuration)).
-
-For other clients, set their Addy.io server URL to your stalias address and use a stalias
-API token. Compatibility depends on the endpoints and response fields the client uses.
-stalias implements the subset listed above; clients that require additional endpoints
-or UUID alias IDs may need changes.
-
-## Requirements and limits
-
-- Do not configure a catch-all on the alias domains: it would accept mail for disabled aliases.
-- Stalwart creates a JMAP identity for each alias, so mail clients can send from it.
-- Aliases are unique across all mailboxes on a Stalwart server. If a randomly generated
-  name is taken, stalias generates another.
-- Generated names are three words by default (adverb, adjective and noun, like
-  `possibly-cosmic-cougar`, about 52.6 million possible names). Under Settings → Alias names you can
-  switch to ten random characters (like `4gh9nzibm3`, about 3.7 quadrillion). This applies to
-  new aliases only. Updating from 0.1.2 or earlier changes the default from characters to words.
-- stalias reads at most 500 mailboxes (Stalwart's per-request limit).
-- Settings, tokens and sessions are stored in `/data/stalias.db` (SQLite). Tokens are
-  stored as hashes and shown only once.
-- Stalwart records no creation date for aliases, so stalias remembers the date of every alias
-  created through it (web UI or API) in the same database. Aliases that already existed, or
-  that you create in Stalwart directly, show no date and are left out when you filter by
-  creation date.
-
-## Configuration
-
-Configure the app through the web UI.
-
-Changing the Stalwart server URL revokes existing stalias API tokens and restarts domain
-and token setup, because mailbox IDs belong to that server. Updating only the API key
-keeps the tokens and selected domains.
-
-These are the only environment variables:
-
-| Variable | Default | |
-| --- | --- | --- |
-| `PORT` | `8080` | port inside the container |
-| `DATA_DIR` | `/data` | where `stalias.db` lives; must be writable for UID 65532 |
-| `TRUST_PROXY` | `false` | believe `X-Forwarded-For` (only enable behind a reverse proxy you control) |
-
-## Development
+Change your password under **Settings → Security**. If you lose access, reset it in a terminal:
 
 ```sh
-cargo test                                     # unit tests and tests against a fake Stalwart
-eval "$(scripts/setup-test-instance.sh)"       # throwaway Stalwart in Docker
-cargo test -- --ignored --test-threads=1       # tests against that Stalwart
-DATA_DIR=./data cargo run                      # start the app
+docker exec -it stalias /stalias reset-admin-password
 ```
 
-### Project layout
+Both actions log out all devices. See [passwords and recovery](docs/passwords.md) for details.
 
-| Path | Contents |
-| --- | --- |
-| `src/` | the app: `stalwart/` (JMAP client), `aliases.rs`, `store.rs` (SQLite), `auth.rs`, `web/` (Addy.io API and browser UI) |
-| `src/web/templates/` | askama templates: `layouts/`, `pages/`, `components/` (macros, fragments) and `icons/` |
-| `src/web/static/` | the CSS and JavaScript served by the app, compiled into the binary |
-| `assets-build/` | build for the generated static files, see its [README](assets-build/README.md) |
-| `tests/` | HTTP tests against a fake Stalwart (`web_mock.rs`) and a real one (`*_live.rs`, ignored by default) |
-| `scripts/` | helper scripts, e.g. the throwaway Stalwart for the live tests |
-| `docs/` | notes on Stalwart's behaviour and a Compose example |
+## Documentation
 
-The UI uses server-rendered HTML with [askama](https://github.com/askama-rs/askama) templates
-and [htmx](https://htmx.org). [Tailwind CSS](https://tailwindcss.com) and
-[Basecoat](https://basecoatui.com) (the shadcn/ui design system as plain CSS) provide the
-styles; icons come from [Lucide](https://lucide.dev). The binary serves all assets locally,
-without a CDN.
-
-`src/web/static/app.css` and `src/web/static/basecoat.min.js` are generated files committed
-to the repository, so you can build the Rust app without Node. After changing Tailwind
-classes in `src/web/templates/` or `assets-build/styles.css`, run
-`cd assets-build && npm ci && npm run build`.
-
-[docs/stalwart-0.16-notes.md](docs/stalwart-0.16-notes.md) documents Stalwart's alias API,
-including renumbered indexes, the lack of optimistic locking and permissions.
+- [Configuration and deployment](docs/configuration.md): environment variables, proxy setup and Stalwart requirements.
+- [API reference](docs/api.md): supported Addy.io endpoints and client compatibility.
+- [Passwords and recovery](docs/passwords.md): login limits, breach checks and local reset.
+- [Development](docs/development.md) and [contributing](CONTRIBUTING.md): builds, tests and project layout.
 
 ## Credits
 
