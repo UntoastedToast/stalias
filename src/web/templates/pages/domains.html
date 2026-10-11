@@ -4,27 +4,5 @@
 {% block active_settings %}aria-current="page"{% endblock %}
 {% block content %}
 {% if wizard %}{{ m::stepper(3) }}{% endif %}
-<div class="card">
-  <header>
-    <h2>Alias domains</h2>
-    <p>New aliases are created on the domains you tick here. The list is read from Stalwart.</p>
-  </header>
-  <section class="grid gap-4">
-    <form method="post" action="/settings/domains" class="grid gap-4">
-      {% if let Some(e) = error %}{{ m::alert(e, "", "") }}{% endif %}
-      {% if no_domains %}{{ m::alert("Stalwart has no domains yet. In its admin UI open Management › Domains › Domains, add your mail domain, then reload this page.", "", "") }}{% endif %}
-      <div class="grid gap-2">
-        {% for d in domains %}
-        <label for="domain-{{ loop.index }}" class="item cursor-pointer" data-variant="outline" data-size="sm">
-          <input id="domain-{{ loop.index }}" class="input" type="checkbox" name="domain" value="{{ d.name }}" {% if d.selected %}checked{% endif %}>
-          <section><h3>{{ d.name }}</h3></section>
-        </label>
-        {% endfor %}
-      </div>
-      {{ m::note("Do not set a catch-all on these domains", "A catch-all would keep delivering mail to aliases you switched off. Check it in Stalwart under Management › Domains › Domains: open the domain and leave “Catch-All Address” in the “Email” section empty.") }}
-      <p class="text-sm text-muted-foreground">You can use several domains. The first one in the list is the default in the Bitwarden instructions. You can change the choice later in Settings.</p>
-      <div><button type="submit" class="btn">Save {% if wizard %}{% include "icons/arrow-right.svg" %}{% endif %}</button></div>
-    </form>
-  </section>
-</div>
+{% include "components/domains_card.html" %}
 {% endblock %}

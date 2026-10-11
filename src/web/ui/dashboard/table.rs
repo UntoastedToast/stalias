@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use crate::aliases::{AliasEntry, AliasFilter, Created, Sort, Status};
 use crate::state::AppState;
-use crate::web::ui::{SelectOption, UiError, backend, selected_value};
+use crate::web::ui::{SelectOption, UiError, backend, choices, selected_value};
 
 /// Aliases shown per page.
 pub(super) const PAGE_SIZE: usize = 15;
@@ -216,17 +216,6 @@ impl ListQuery {
         query.append_pair("page", &page.to_string());
         query.finish()
     }
-}
-
-pub(super) fn choices(items: &[(&str, &str)], current: &str) -> Vec<SelectOption> {
-    items
-        .iter()
-        .map(|(value, label)| SelectOption {
-            value: (*value).to_owned(),
-            label: (*label).to_owned(),
-            selected: *value == current,
-        })
-        .collect()
 }
 
 pub(super) fn filter_bar(query: &ListQuery, filter: &AliasFilter, domains: &[String]) -> FilterBar {

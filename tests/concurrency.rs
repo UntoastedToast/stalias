@@ -86,7 +86,7 @@ async fn state(server: &MockServer) -> AppState {
 fn alias(name: &str) -> NewAlias {
     NewAlias {
         local_part: Some(name.into()),
-        description: None,
+        ..Default::default()
     }
 }
 

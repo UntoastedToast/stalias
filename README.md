@@ -124,7 +124,7 @@ Authenticate requests with `Authorization: Bearer <token>`:
 
 | Method | Path | |
 | --- | --- | --- |
-| `POST` | `/api/v1/aliases` | create (`domain`, `description`, `format: custom` + `local_part`) |
+| `POST` | `/api/v1/aliases` | create (`domain`, `description`, `format`: `random_words`, `random_characters` or `custom` + `local_part`) |
 | `GET` | `/api/v1/aliases` | list the token's aliases |
 | `GET` `PATCH` `DELETE` | `/api/v1/aliases/{id}` | show, change the description, delete |
 | `POST` | `/api/v1/active-aliases` | enable (`{"id": ...}`) |
@@ -135,7 +135,8 @@ Addy.io's forwarding features, including recipients, labels and statistics, don'
 here and are omitted.
 
 Bitwarden's generator sends `POST /api/v1/aliases` with `{domain, description}` and reads
-`data.email`, which stalias includes in its response.
+`data.email`, which stalias includes in its response. Since Bitwarden sends no `format`, the
+name follows the alias style set in stalias (see [Configuration](#configuration)).
 
 For other clients, set their Addy.io server URL to your stalias address and use a stalias
 API token. Compatibility depends on the endpoints and response fields the client uses.
@@ -148,6 +149,10 @@ or UUID alias IDs may need changes.
 - Stalwart creates a JMAP identity for each alias, so mail clients can send from it.
 - Aliases are unique across all mailboxes on a Stalwart server. If a randomly generated
   name is taken, stalias generates another.
+- Generated names are three words by default (adverb, adjective and noun, like
+  `possibly-cosmic-cougar`, about 52.6 million possible names). Under Settings → Alias names you can
+  switch to ten random characters (like `4gh9nzibm3`, about 3.7 quadrillion). This applies to
+  new aliases only. Updating from 0.1.2 or earlier changes the default from characters to words.
 - stalias reads at most 500 mailboxes (Stalwart's per-request limit).
 - Settings, tokens and sessions are stored in `/data/stalias.db` (SQLite). Tokens are
   stored as hashes and shown only once.
@@ -217,6 +222,9 @@ aliases instead of Enterprise-only masked emails and shares no code with either 
 The web UI uses [Basecoat](https://basecoatui.com) (MIT), [htmx](https://htmx.org) (0BSD),
 [Tailwind CSS](https://tailwindcss.com) (MIT), [Lucide](https://lucide.dev) icons (ISC) and the
 [Geist](https://vercel.com/font) font (SIL OFL 1.1).
+
+Generated alias names use the English word lists of the
+[petname](https://github.com/allenap/rust-petname) crate by Gavin Panella (Apache-2.0).
 
 ## License
 

@@ -101,3 +101,8 @@
   </ol>
 </nav>
 {% endmacro %}
+
+{# One tab button of a Basecoat tab list. The panel with the id "<tabs>-panel-<name>" belongs to it. #}
+{% macro tab(tabs, name, label, selected) %}
+<button type="button" role="tab" id="{{ tabs }}-tab-{{ name }}" aria-controls="{{ tabs }}-panel-{{ name }}" aria-selected="{{ selected }}" tabindex="{% if selected %}0{% else %}-1{% endif %}">{{ label }}</button>
+{% endmacro %}

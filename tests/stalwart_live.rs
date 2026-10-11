@@ -34,6 +34,7 @@ fn custom(local: &str) -> NewAlias {
     NewAlias {
         local_part: Some(local.into()),
         description: Some("stalias live test".into()),
+        ..Default::default()
     }
 }
 

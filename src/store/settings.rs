@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use rusqlite::{OptionalExtension, params};
 
+use crate::naming::NameFormat;
+
 use super::{Result, Store, alias_dates, tokens};
 
 pub(super) const SCHEMA: &str =
@@ -23,6 +25,8 @@ pub struct Settings {
     pub domains: Vec<String>,
     /// Set once the first-run wizard was completed, which switches back to the normal layout.
     pub setup_done: bool,
+    /// The style of aliases that get a generated name.
+    pub alias_format: NameFormat,
 }
 
 impl Store {
@@ -42,6 +46,10 @@ impl Store {
                     .and_then(|v| serde_json::from_str(&v).ok())
                     .unwrap_or_default(),
                 setup_done: all.contains_key("setup_done"),
+                alias_format: all
+                    .remove("alias_format")
+                    .and_then(|v| NameFormat::parse(&v))
+                    .unwrap_or_default(),
             })
         })
         .await
@@ -100,6 +108,11 @@ impl Store {
         self.set("domains", json).await
     }
 
+    /// Saves the style of generated alias names.
+    pub async fn set_alias_format(&self, format: NameFormat) -> Result<()> {
+        self.set("alias_format", format.as_str().into()).await
+    }
+
     /// Marks the first-run wizard as completed.
     pub async fn finish_setup(&self) -> Result<()> {
         self.set("setup_done", "1".into()).await
@@ -143,6 +156,30 @@ mod tests {
         let c = s.settings().await.unwrap();
         assert_eq!(c.stalwart_url.as_deref(), Some("http://y"));
         assert!(c.domains.is_empty());
+    }
+
+    #[tokio::test]
+    async fn alias_format_defaults_to_words_and_survives_a_server_change() {
+        let s = Store::in_memory().unwrap();
+        assert_eq!(s.settings().await.unwrap().alias_format, NameFormat::Words);
+        s.set_alias_format(NameFormat::Characters).await.unwrap();
+        assert_eq!(
+            s.settings().await.unwrap().alias_format,
+            NameFormat::Characters
+        );
+        s.set_stalwart("http://a".into(), "key".into())
+            .await
+            .unwrap();
+        s.set_stalwart("http://b".into(), "key".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            s.settings().await.unwrap().alias_format,
+            NameFormat::Characters
+        );
+        // A value nobody understands falls back to the default.
+        s.set("alias_format", "uuid".into()).await.unwrap();
+        assert_eq!(s.settings().await.unwrap().alias_format, NameFormat::Words);
     }
 
     #[tokio::test]

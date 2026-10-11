@@ -7,16 +7,15 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use rand::seq::IndexedRandom;
 use serde_json::{Map, Value, json};
 
 mod filter;
 
 pub use filter::{AliasFilter, Created, Sort, Status};
 
+use crate::naming::NameFormat;
 use crate::stalwart::{self, Account, Alias, Client, Domain};
 
-const RANDOM_LEN: usize = 10;
 const RANDOM_ATTEMPTS: usize = 5;
 const LOCAL_PART_MAX: usize = 64;
 const DESCRIPTION_MAX: usize = 255;
@@ -64,6 +63,8 @@ pub struct NewAlias {
     /// Chosen by the caller; a random one is generated when absent.
     pub local_part: Option<String>,
     pub description: Option<String>,
+    /// The style of the generated local part. Ignored when `local_part` is given.
+    pub format: NameFormat,
 }
 
 /// Reads and changes the aliases of Stalwart mailboxes. Writes are serialised by one lock.
@@ -170,7 +171,10 @@ impl AliasService {
             RANDOM_ATTEMPTS
         };
         for _ in 0..attempts {
-            let local = new.local_part.clone().unwrap_or_else(random_local_part);
+            let local = new
+                .local_part
+                .clone()
+                .unwrap_or_else(|| new.format.generate());
             let account = self.account(account_id).await?;
             if account
                 .aliases
@@ -294,14 +298,6 @@ fn patch(key: String, value: Value) -> Map<String, Value> {
     Map::from_iter([(key, value)])
 }
 
-fn random_local_part() -> String {
-    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::rng();
-    (0..RANDOM_LEN)
-        .map(|_| *CHARS.choose(&mut rng).expect("non-empty") as char)
-        .collect()
-}
-
 fn validate_local_part(local: &str) -> Result<(), Error> {
     let ok = !local.is_empty()
         && local.len() <= LOCAL_PART_MAX
@@ -330,12 +326,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn random_names_are_valid_and_distinct() {
-        let a = random_local_part();
-        let b = random_local_part();
-        assert_eq!(a.len(), RANDOM_LEN);
-        assert!(validate_local_part(&a).is_ok());
-        assert_ne!(a, b);
+    fn generated_names_are_valid_local_parts() {
+        for format in [NameFormat::Words, NameFormat::Characters] {
+            for _ in 0..200 {
+                let name = format.generate();
+                assert!(validate_local_part(&name).is_ok(), "{name}");
+            }
+        }
     }
 
     #[test]

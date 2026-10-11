@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/logout", post(login::logout))
         .route("/setup", get(setup::page).post(setup::submit))
         .route("/settings", get(settings::page).post(settings::save))
+        .route("/settings/alias-format", post(settings::save_alias_format))
         .route(
             "/settings/domains",
             get(settings::domains_page).post(settings::save_domains),
@@ -125,6 +126,18 @@ fn account_options(accounts: &[Account], selected: Option<&str>) -> Vec<SelectOp
                 None => a.name.clone(),
             },
             selected: selected == Some(a.id.as_str()),
+        })
+        .collect()
+}
+
+/// Select options from `(value, label)` pairs, with the one equal to `current` selected.
+fn choices(items: &[(&str, &str)], current: &str) -> Vec<SelectOption> {
+    items
+        .iter()
+        .map(|(value, label)| SelectOption {
+            value: (*value).to_owned(),
+            label: (*label).to_owned(),
+            selected: *value == current,
         })
         .collect()
 }

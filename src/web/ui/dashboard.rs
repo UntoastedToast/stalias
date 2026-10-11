@@ -174,12 +174,17 @@ pub async fn create(
 ) -> UiResult {
     let backend = backend(&state)?;
     let non_empty = |s: String| Some(s.trim().to_owned()).filter(|s| !s.is_empty());
+    let settings = state.store.settings().await?;
     let new = NewAlias {
         local_part: non_empty(form.local_part),
         description: non_empty(form.description),
+        format: settings.alias_format,
     };
-    let allowed = state.store.settings().await?.domains;
-    let result = if allowed.iter().any(|d| d.eq_ignore_ascii_case(&form.domain)) {
+    let result = if settings
+        .domains
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(&form.domain))
+    {
         backend
             .aliases
             .create(&form.account, &form.domain, new)

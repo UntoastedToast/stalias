@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::aliases::{self, AliasEntry, NewAlias};
+use crate::naming::NameFormat;
 use crate::stalwart;
 use crate::state::{AppState, Backend};
 use crate::store::{Store, Token};
@@ -82,6 +83,7 @@ pub struct Authed {
     backend: Arc<Backend>,
     store: Store,
     domains: Vec<String>,
+    alias_format: NameFormat,
     _connection: tokio::sync::OwnedRwLockReadGuard<()>,
 }
 
@@ -122,6 +124,7 @@ impl FromRequestParts<AppState> for Authed {
             backend,
             store: state.store.clone(),
             domains: settings.domains,
+            alias_format: settings.alias_format,
             _connection: connection,
         })
     }
@@ -156,14 +159,23 @@ async fn create(
             .cloned()
             .ok_or_else(|| ApiError::field("domain", "The selected domain is not available."))?,
     };
-    let local_part = match body.format.as_deref() {
-        Some("custom") => Some(body.local_part.ok_or_else(|| {
-            ApiError::field(
-                "local_part",
-                "The local part is required for the custom format.",
-            )
-        })?),
-        _ => None,
+    // Without a `format` the server decides, like Addy.io does with its account setting.
+    let (local_part, format) = match body.format.as_deref() {
+        Some("custom") => (
+            Some(body.local_part.ok_or_else(|| {
+                ApiError::field(
+                    "local_part",
+                    "The local part is required for the custom format.",
+                )
+            })?),
+            auth.alias_format,
+        ),
+        requested => (
+            None,
+            requested
+                .and_then(NameFormat::parse)
+                .unwrap_or(auth.alias_format),
+        ),
     };
     let entry = auth
         .backend
@@ -174,6 +186,7 @@ async fn create(
             NewAlias {
                 local_part,
                 description: body.description.filter(|d| !d.is_empty()),
+                format,
             },
         )
         .await?;
