@@ -9,6 +9,8 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use serde_json::{Map, Value, json};
+use sha1::Digest;
+use stalias::password::BreachCheck;
 use stalias::state::AppState;
 use stalias::store::Store;
 use stalias::web;
@@ -20,6 +22,7 @@ use common::{api, form, get, send};
 
 const ACCOUNT: &str = "acc1";
 const DOMAIN: &str = "example.org";
+const STRONG: &str = "pflaume-Nebel-7-Kupfer-Zitrone";
 
 /// One mailbox with a numbered alias map, like Stalwart keeps it.
 #[derive(Default)]
@@ -298,7 +301,11 @@ async fn admin_cookie(h: &Harness) -> String {
         .unwrap();
     format!(
         "stalias_session={}",
-        h.store.create_session().await.unwrap()
+        h.store
+            .create_session("not-a-real-hash".into())
+            .await
+            .unwrap()
+            .unwrap()
     )
 }
 
@@ -400,7 +407,14 @@ async fn pages_are_not_cacheable_but_assets_are() {
 async fn login_limit_is_per_client_behind_a_trusted_proxy() {
     let h = harness(true).await;
     h.store
-        .create_admin("not-a-real-hash".into())
+        .create_admin(
+            stalias::password::PasswordProcessor::default()
+                .reserve()
+                .unwrap()
+                .hash(STRONG.into())
+                .await
+                .unwrap(),
+        )
         .await
         .unwrap();
     let attempt = |ip: &str| {
@@ -432,7 +446,14 @@ async fn login_limit_is_per_client_behind_a_trusted_proxy() {
 async fn login_limit_ignores_forwarded_for_without_a_trusted_proxy() {
     let h = harness(false).await;
     h.store
-        .create_admin("not-a-real-hash".into())
+        .create_admin(
+            stalias::password::PasswordProcessor::default()
+                .reserve()
+                .unwrap()
+                .hash(STRONG.into())
+                .await
+                .unwrap(),
+        )
         .await
         .unwrap();
     for i in 0..11 {
@@ -471,7 +492,7 @@ async fn first_run_wizard_walks_through_all_steps() {
         )
     };
     assert_eq!(
-        send(&app, setup("nope", "longpassword")).await.status,
+        send(&app, setup("nope", STRONG)).await.status,
         StatusCode::UNAUTHORIZED
     );
     // Eight bytes, but only four characters.
@@ -479,7 +500,7 @@ async fn first_run_wizard_walks_through_all_steps() {
         send(&app, setup("CODE", "üüüü")).await.status,
         StatusCode::UNPROCESSABLE_ENTITY
     );
-    let done = send(&app, setup("CODE", "longpassword")).await;
+    let done = send(&app, setup("CODE", STRONG)).await;
     assert_eq!(done.status, StatusCode::SEE_OTHER);
     let cookie = done.headers[header::SET_COOKIE]
         .to_str()
@@ -666,7 +687,14 @@ async fn bearer_scheme_is_case_insensitive() {
 async fn login_limit_uses_the_last_forwarded_for_line() {
     let h = harness(true).await;
     h.store
-        .create_admin("not-a-real-hash".into())
+        .create_admin(
+            stalias::password::PasswordProcessor::default()
+                .reserve()
+                .unwrap()
+                .hash(STRONG.into())
+                .await
+                .unwrap(),
+        )
         .await
         .unwrap();
     // The proxy adds its own header line, so the first line is whatever the client claims.
@@ -1084,7 +1112,7 @@ async fn settings_page_saves_the_alias_format() {
     };
     let saved = send(&h.app, save("random_characters")).await;
     assert_eq!(saved.status, StatusCode::SEE_OTHER);
-    assert_eq!(saved.location(), "/settings?tab=names");
+    assert_eq!(saved.location(), "/settings?tab=aliases");
     let page = send(&h.app, get("/settings", Some(&cookie))).await;
     assert!(page.body.contains(&hidden("random_characters")));
 
@@ -1134,14 +1162,14 @@ async fn settings_are_split_into_tabs_and_the_server_opens_the_asked_one() {
     };
 
     let default = open("").await;
-    for tab in ["connection", "domains", "names"] {
+    for tab in ["connection", "aliases", "security"] {
         assert!(
             default.contains(&format!("settings-tabs-tab-{tab}")),
             "{tab}"
         );
     }
     assert!(tab_selected(&default, "connection") && panel_open(&default, "connection"));
-    assert!(!panel_open(&default, "domains") && !panel_open(&default, "names"));
+    assert!(!panel_open(&default, "aliases") && !panel_open(&default, "security"));
     // Every panel is in the page, so switching tabs needs no request.
     assert!(default.contains("Connect to Stalwart") && default.contains("Alias names"));
     assert!(
@@ -1150,8 +1178,16 @@ async fn settings_are_split_into_tabs_and_the_server_opens_the_asked_one() {
     );
 
     let names = open("?tab=names").await;
-    assert!(tab_selected(&names, "names") && panel_open(&names, "names"));
+    assert!(tab_selected(&names, "aliases") && panel_open(&names, "aliases"));
     assert!(!tab_selected(&names, "connection") && !panel_open(&names, "connection"));
+
+    let security = open("?tab=security").await;
+    assert!(tab_selected(&security, "security") && panel_open(&security, "security"));
+    assert!(!panel_open(&security, "connection") && !panel_open(&security, "aliases"));
+    assert!(security.contains("name=\"current_password\""));
+    assert!(default.contains("Alias configuration") && default.contains("Security"));
+    let domains = open("?tab=domains").await;
+    assert!(tab_selected(&domains, "aliases"));
 
     let unknown = open("?tab=nonsense").await;
     assert!(tab_selected(&unknown, "connection"));
@@ -1167,17 +1203,17 @@ async fn domains_are_saved_from_their_tab_and_return_to_it() {
     // The old address now opens the tab.
     let old = send(&h.app, get("/settings/domains", c)).await;
     assert_eq!(old.status, StatusCode::SEE_OTHER);
-    assert_eq!(old.location(), "/settings?tab=domains");
+    assert_eq!(old.location(), "/settings?tab=aliases");
 
     let saved = send(&h.app, form("/settings/domains", c, &[("domain", DOMAIN)])).await;
     assert_eq!(saved.status, StatusCode::SEE_OTHER);
-    assert_eq!(saved.location(), "/settings?tab=domains");
+    assert_eq!(saved.location(), "/settings?tab=aliases");
 
     // Nothing ticked: the settings page comes back with the message in the domains tab.
     let refused = send(&h.app, form("/settings/domains", c, &[])).await;
     assert_eq!(refused.status, StatusCode::OK);
     assert!(refused.body.contains("Select at least one domain."));
-    assert!(tab_selected(&refused.body, "domains") && panel_open(&refused.body, "domains"));
+    assert!(tab_selected(&refused.body, "aliases") && panel_open(&refused.body, "aliases"));
     assert!(!panel_open(&refused.body, "connection"));
     assert_eq!(h.store.settings().await.unwrap().domains, [DOMAIN]);
 }
@@ -1192,7 +1228,14 @@ async fn an_unreachable_stalwart_does_not_lock_the_admin_out_of_the_settings() {
     store.set_domains(&[DOMAIN.into()]).await.unwrap();
     store.create_admin("not-a-real-hash".into()).await.unwrap();
     store.finish_setup().await.unwrap();
-    let cookie = format!("stalias_session={}", store.create_session().await.unwrap());
+    let cookie = format!(
+        "stalias_session={}",
+        store
+            .create_session("not-a-real-hash".into())
+            .await
+            .unwrap()
+            .unwrap()
+    );
     let app = web::router(AppState::new(store, None, false).await.unwrap());
 
     // The connection form must stay usable, so the admin can repair the connection.
@@ -1205,4 +1248,128 @@ async fn an_unreachable_stalwart_does_not_lock_the_admin_out_of_the_settings() {
         page.body
     );
     assert!(tab_selected(&page.body, "connection"));
+}
+
+fn setup_form(password: &str, confirm: &str) -> Request<Body> {
+    form(
+        "/setup",
+        None,
+        &[
+            ("code", "CODE"),
+            ("password", password),
+            ("confirm", confirm),
+        ],
+    )
+}
+
+async fn setup_app(breach_api: Option<&str>) -> Router {
+    let mut state = AppState::new(Store::in_memory().unwrap(), Some("CODE".into()), false)
+        .await
+        .unwrap();
+    if let Some(url) = breach_api {
+        state = state.with_breach_check(BreachCheck::new(url).unwrap());
+    }
+    web::router(state)
+}
+
+/// A fake Have I Been Pwned that knows `leaked` and answers other ranges with padding only.
+async fn breach_server(leaked: &str) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(format!("{}:0\r\n", "A".repeat(35))),
+        )
+        .with_priority(10)
+        .mount(&server)
+        .await;
+    let digest = hex::encode_upper(sha1::Sha1::digest(leaked.as_bytes()));
+    let (prefix, suffix) = digest.split_at(5);
+    Mock::given(method("GET"))
+        .and(path(format!("/range/{prefix}")))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+            "0000000000000000000000000000000000A:0\r\n{suffix}:42\r\n"
+        )))
+        .mount(&server)
+        .await;
+    server
+}
+
+#[tokio::test]
+async fn setup_refuses_unsafe_passwords() {
+    let app = setup_app(None).await;
+    let long = "aB3-".repeat(33);
+    for (name, password) in [
+        ("too short", "Ab1-Cd2-Ef3"),
+        ("too long", long.as_str()),
+        ("with a space", "pflaume Nebel 7 Kupfer"),
+        ("with a tab", "pflaume-Nebel-7\tKupfer-Zitrone"),
+        (
+            "with a control character",
+            "pflaume-Nebel-7\u{0}Kupfer-Zitrone",
+        ),
+        ("common", "password1234"),
+        ("repetitive", "aaaaaaaaaaaaaaaa"),
+    ] {
+        let reply = send(&app, setup_form(password, password)).await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{name}");
+    }
+    let mismatch = send(&app, setup_form(STRONG, "pflaume-Nebel-8-Kupfer-Zitrone")).await;
+    assert_eq!(mismatch.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(mismatch.body.contains("do not match"));
+    assert_eq!(send(&app, get("/", None)).await.location(), "/setup");
+}
+
+#[tokio::test]
+async fn setup_refuses_bytes_that_are_not_utf8() {
+    let app = setup_app(None).await;
+    let body = format!("code=CODE&password={0}&confirm={0}", "%FF".repeat(16));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/setup")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body))
+        .unwrap();
+    let reply = send(&app, req).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(reply.body.contains("not valid UTF-8"));
+}
+
+#[tokio::test]
+async fn setup_refuses_leaked_passwords_and_service_outages() {
+    let leaked = breach_server(STRONG).await;
+    let app = setup_app(Some(&leaked.uri())).await;
+    let reply = send(&app, setup_form(STRONG, STRONG)).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(reply.body.contains("data breach"));
+    let other = "kupfer-Zitrone-9-Pflaume-Nebel";
+    assert_eq!(
+        send(&app, setup_form(other, other)).await.status,
+        StatusCode::SEE_OTHER
+    );
+
+    let down = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&down)
+        .await;
+    let app = setup_app(Some(&down.uri())).await;
+    assert_eq!(
+        send(&app, setup_form(STRONG, STRONG)).await.status,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
+async fn login_accepts_either_form_of_the_same_unicode_password() {
+    let composed = "Pfl\u{e4}ume-Nebel-7-Kupfer-Zitrone";
+    let decomposed = "Pfla\u{308}ume-Nebel-7-Kupfer-Zitrone";
+    let app = setup_app(None).await;
+    assert_eq!(
+        send(&app, setup_form(composed, decomposed)).await.status,
+        StatusCode::SEE_OTHER
+    );
+    for password in [composed, decomposed] {
+        let reply = send(&app, form("/login", None, &[("password", password)])).await;
+        assert_eq!(reply.status, StatusCode::SEE_OTHER, "{password:?}");
+    }
 }

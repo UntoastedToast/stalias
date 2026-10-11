@@ -1,0 +1,16 @@
+    <div class="card">
+      <header>
+        <h2>Alias names</h2>
+        <p>The style of aliases that get a generated name, for example from Bitwarden or when you leave the name empty.</p>
+      </header>
+      <section>
+        <form method="post" action="/settings/alias-format" class="grid gap-4">
+          <div role="group" class="field">
+            <label id="alias-format-label">Style</label>
+            {{ m::select("alias-format", "alias_format", alias_formats, alias_format_value, "w-full [&>button]:w-full") }}
+            <p>{{ alias_format_hint }}</p>
+          </div>
+          <div><button type="submit" class="btn">Save</button></div>
+        </form>
+      </section>
+    </div>

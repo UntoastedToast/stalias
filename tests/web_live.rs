@@ -177,8 +177,8 @@ async fn setup_wizard_and_dashboard() {
             None,
             &[
                 ("code", "nope"),
-                ("password", "longpassword"),
-                ("confirm", "longpassword"),
+                ("password", "pflaume-Nebel-7-Kupfer-Zitrone"),
+                ("confirm", "pflaume-Nebel-7-Kupfer-Zitrone"),
             ],
         ),
     )
@@ -206,8 +206,8 @@ async fn setup_wizard_and_dashboard() {
             None,
             &[
                 ("code", "test-code"),
-                ("password", "longpassword"),
-                ("confirm", "longpassword"),
+                ("password", "pflaume-Nebel-7-Kupfer-Zitrone"),
+                ("confirm", "pflaume-Nebel-7-Kupfer-Zitrone"),
             ],
         ),
     )

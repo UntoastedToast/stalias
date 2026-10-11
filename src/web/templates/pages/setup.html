@@ -20,12 +20,12 @@
       </div>
       <div role="group" class="field">
         <label for="password">Admin password</label>
-        <input id="password" class="input" type="password" name="password" autocomplete="new-password" minlength="8" required>
-        <p>At least 8 characters. You need it to sign in to this page.</p>
+        <input id="password" class="input" type="password" name="password" autocomplete="new-password" pattern="\S+" required>
+        <p>12 to 128 characters, no spaces. Easy-to-guess and leaked passwords are refused. You need it to sign in to this page.</p>
       </div>
       <div role="group" class="field">
         <label for="confirm">Repeat password</label>
-        <input id="confirm" class="input" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+        <input id="confirm" class="input" type="password" name="confirm" autocomplete="new-password" pattern="\S+" required>
       </div>
       <button type="submit" class="btn w-full">Continue {% include "icons/arrow-right.svg" %}</button>
     </form>

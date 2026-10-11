@@ -12,10 +12,12 @@ pub struct ServerConfig {
     pub data_dir: PathBuf,
     /// Set `TRUST_PROXY=true` when a reverse proxy in front sets `X-Forwarded-For`.
     pub trust_proxy: bool,
+    /// Set `HIBP_CHECK=false` to stop asking Have I Been Pwned whether a new password leaked.
+    pub breach_check: bool,
 }
 
 impl ServerConfig {
-    /// Reads `PORT`, `DATA_DIR` and `TRUST_PROXY`.
+    /// Reads `PORT`, `DATA_DIR`, `TRUST_PROXY` and `HIBP_CHECK`.
     ///
     /// # Errors
     ///
@@ -33,6 +35,9 @@ impl ServerConfig {
                 .map_or_else(|| PathBuf::from("/data"), PathBuf::from),
             trust_proxy: std::env::var("TRUST_PROXY")
                 .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes")),
+            breach_check: std::env::var("HIBP_CHECK").map_or(true, |v| {
+                !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no")
+            }),
         })
     }
 }

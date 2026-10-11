@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
 
 pub use settings::Settings;
@@ -56,7 +56,27 @@ impl Store {
         Self::init(Connection::open_in_memory()?)
     }
 
+    /// Local recovery must never create a database or initialize an empty instance.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file is missing or is not a stalias database.
+    pub fn open_existing(path: &Path) -> Result<Self> {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // A foreign SQLite file would otherwise fail later with a raw "no such table".
+        conn.query_row("SELECT 1 FROM settings LIMIT 1", [], |_| Ok(()))
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(()),
+                e => Err(e),
+            })?;
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+
     fn init(conn: Connection) -> Result<Self> {
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         for schema in [
             settings::SCHEMA,

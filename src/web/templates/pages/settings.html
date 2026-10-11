@@ -6,36 +6,26 @@
 {% if wizard %}
 {{ m::stepper(2) }}
 {% include "components/connection_cards.html" %}
+<div class="card">
+  <header><h2>Security</h2><p>Change your admin password and log out all devices.</p></header>
+  <section><a class="btn" data-variant="outline" href="/settings/password">Change password</a></section>
+</div>
 {% else %}
 <div class="tabs w-full" id="settings-tabs">
   <nav role="tablist" aria-orientation="horizontal" class="w-full">
     {{ m::tab("settings-tabs", "connection", "Connection", tab == "connection") }}
-    {{ m::tab("settings-tabs", "domains", "Alias domains", tab == "domains") }}
-    {{ m::tab("settings-tabs", "names", "Alias names", tab == "names") }}
+    {{ m::tab("settings-tabs", "aliases", "Alias configuration", tab == "aliases") }}
+    {{ m::tab("settings-tabs", "security", "Security", tab == "security") }}
   </nav>
   <div role="tabpanel" id="settings-tabs-panel-connection" aria-labelledby="settings-tabs-tab-connection" tabindex="-1" aria-selected="{{ tab == "connection" }}" class="grid gap-6 pt-6" {% if tab != "connection" %}hidden{% endif %}>
     {% include "components/connection_cards.html" %}
   </div>
-  <div role="tabpanel" id="settings-tabs-panel-domains" aria-labelledby="settings-tabs-tab-domains" tabindex="-1" aria-selected="{{ tab == "domains" }}" class="grid gap-6 pt-6" {% if tab != "domains" %}hidden{% endif %}>
+  <div role="tabpanel" id="settings-tabs-panel-aliases" aria-labelledby="settings-tabs-tab-aliases" tabindex="-1" aria-selected="{{ tab == "aliases" }}" class="grid gap-6 pt-6" {% if tab != "aliases" %}hidden{% endif %}>
     {% include "components/domains_card.html" %}
+    {% include "components/alias_names_card.html" %}
   </div>
-  <div role="tabpanel" id="settings-tabs-panel-names" aria-labelledby="settings-tabs-tab-names" tabindex="-1" aria-selected="{{ tab == "names" }}" class="grid gap-6 pt-6" {% if tab != "names" %}hidden{% endif %}>
-    <div class="card">
-      <header>
-        <h2>Alias names</h2>
-        <p>The style of aliases that get a generated name, for example from Bitwarden or when you leave the name empty.</p>
-      </header>
-      <section>
-        <form method="post" action="/settings/alias-format" class="grid gap-4">
-          <div role="group" class="field">
-            <label id="alias-format-label">Style</label>
-            {{ m::select("alias-format", "alias_format", alias_formats, alias_format_value, "w-full [&>button]:w-full") }}
-            <p>{{ alias_format_hint }}</p>
-          </div>
-          <div><button type="submit" class="btn">Save</button></div>
-        </form>
-      </section>
-    </div>
+  <div role="tabpanel" id="settings-tabs-panel-security" aria-labelledby="settings-tabs-tab-security" tabindex="-1" aria-selected="{{ tab == "security" }}" class="grid gap-6 pt-6" {% if tab != "security" %}hidden{% endif %}>
+    {% include "components/password_card.html" %}
   </div>
 </div>
 {% endif %}

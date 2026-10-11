@@ -6,11 +6,10 @@ use axum::response::{IntoResponse, Redirect};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
-use super::{UiResult, render};
-use crate::auth::{ClientIp, constant_time_eq, hash_password, is_https, session_cookie};
+use super::{Denied, UiResult, admit, render};
+use crate::auth::{ClientIp, constant_time_eq, is_https, session_cookie};
+use crate::password;
 use crate::state::AppState;
-
-const MIN_PASSWORD_LEN: usize = 8;
 
 #[derive(Template)]
 #[template(path = "pages/setup.html")]
@@ -45,49 +44,45 @@ pub async fn submit(
     if state.store.settings().await?.admin_hash.is_some() {
         return Ok(Redirect::to("/").into_response());
     }
-    let reject = |status: StatusCode, msg: &str| -> UiResult {
+    let reject = |d: Denied| -> UiResult {
         let page = render(SetupPage {
-            error: Some(msg.into()),
+            error: Some(d.message.clone()),
         })?;
-        Ok((status, page).into_response())
+        Ok(d.respond(page))
     };
-    let Some(mut attempt) = state.login_limiter.try_attempt(client) else {
-        return reject(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many failed attempts. Try again in a minute.",
-        );
+    for value in [&form.password, &form.confirm] {
+        if let Err(e) = password::bounded_normalize(value) {
+            return reject(e.into());
+        }
+    }
+    let (work, attempt) = match admit(&state.passwords, &state.setup_limiter, client) {
+        Ok(admitted) => admitted,
+        Err(d) => return reject(d),
     };
     let code_ok = state
         .setup_code
         .as_deref()
         .is_some_and(|code| constant_time_eq(form.code.trim(), code));
     if !code_ok {
-        return reject(
+        return reject(Denied::new(
             StatusCode::UNAUTHORIZED,
             "The setup code is wrong. Look for it in the container log.",
-        );
+        ));
     }
     attempt.success();
-    if form.password.chars().count() < MIN_PASSWORD_LEN {
-        return reject(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "The password must have at least 8 characters.",
-        );
-    }
-    if form.password != form.confirm {
-        return reject(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "The passwords do not match.",
-        );
-    }
-    if !state
-        .store
-        .create_admin(hash_password(form.password).await)
-        .await?
+    let hash = match work
+        .new_hash(form.password, form.confirm, state.breach_check.as_deref())
+        .await
     {
+        Ok(h) => h,
+        Err(e) => return reject(e.into()),
+    };
+    if !state.store.create_admin(hash.clone()).await? {
         return Ok(Redirect::to("/login").into_response());
     }
-    let session = state.store.create_session().await?;
+    let Some(session) = state.store.create_session(hash).await? else {
+        return Ok(Redirect::to("/login").into_response());
+    };
     Ok((
         jar.add(session_cookie(session, is_https(&headers))),
         Redirect::to("/"),

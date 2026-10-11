@@ -9,6 +9,7 @@
   </header>
   <section>
     <form method="post" action="/login" hx-boost="false" class="grid gap-4">
+      {% if password_changed %}{{ m::note("Password changed", "Your password was changed and all devices were logged out. Log in with your new password.") }}{% endif %}
       {% if let Some(e) = error %}{{ m::alert(e, "", "") }}{% endif %}
       <div role="group" class="field">
         <label for="password">Password</label>

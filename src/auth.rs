@@ -3,11 +3,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use argon2::Argon2;
-use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
@@ -20,32 +18,10 @@ use crate::state::AppState;
 pub const SESSION_COOKIE: &str = "stalias_session";
 
 const MAX_FAILURES: usize = 10;
+const MAX_ACCOUNT_FAILURES: usize = 20;
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 /// Upper bound on tracked clients, so a flood of spoofed addresses cannot grow the map forever.
 const MAX_TRACKED_CLIENTS: usize = 10_000;
-
-/// Argon2 is deliberately slow, so it runs on the blocking pool instead of an async worker.
-pub async fn hash_password(password: String) -> String {
-    tokio::task::spawn_blocking(move || {
-        Argon2::default()
-            .hash_password(password.as_bytes())
-            .expect("hashing with default parameters cannot fail")
-            .to_string()
-    })
-    .await
-    .expect("hashing task panicked")
-}
-
-/// Checks a password against an Argon2 hash. A malformed hash never matches.
-pub async fn verify_password(password: String, hash: String) -> bool {
-    tokio::task::spawn_blocking(move || {
-        Argon2::default()
-            .verify_password(password.as_bytes(), hash.as_str())
-            .is_ok()
-    })
-    .await
-    .expect("hashing task panicked")
-}
 
 /// Compares secrets without stopping at the first differing byte.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -93,84 +69,136 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
-/// Counts failed and in-flight logins per client address.
+/// Atomically counts IP and account failures, including running checks.
 #[derive(Default)]
 pub struct LoginLimiter {
-    clients: Mutex<HashMap<IpAddr, ClientAttempts>>,
+    attempts: Mutex<Attempts>,
+}
+
+#[derive(Default)]
+struct Attempts {
+    clients: HashMap<IpAddr, ClientAttempts>,
+    account: ClientAttempts,
+    next_id: u64,
 }
 
 #[derive(Default)]
 struct ClientAttempts {
     failures: VecDeque<Instant>,
-    in_flight: usize,
+    running: HashMap<u64, Instant>,
 }
 
-/// Reservations are held across password verification. Cancellation counts as a failure.
-pub struct LoginAttempt<'a> {
-    limiter: &'a LoginLimiter,
-    client: IpAddr,
-    failed: bool,
-}
+impl ClientAttempts {
+    fn prune(&mut self, now: Instant) {
+        self.failures
+            .retain(|t| now.duration_since(*t) < FAILURE_WINDOW);
+    }
 
-impl LoginAttempt<'_> {
-    /// Marks the attempt as successful, so it does not count as a failure.
-    pub fn success(&mut self) {
-        self.failed = false;
+    fn retry_after(&self, limit: usize, now: Instant) -> Option<u64> {
+        if self.failures.len() + self.running.len() < limit {
+            return None;
+        }
+        let earliest = self.failures.iter().chain(self.running.values()).min()?;
+        let remaining = FAILURE_WINDOW.saturating_sub(now.duration_since(*earliest));
+        Some((remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0)).max(1))
     }
 }
 
-impl Drop for LoginAttempt<'_> {
-    fn drop(&mut self) {
+#[derive(Debug)]
+pub struct RateLimit {
+    pub retry_after: u64,
+}
+
+/// Cancellation of an admitted authentication check records a failure.
+pub struct LoginAttempt {
+    limiter: Arc<LoginLimiter>,
+    client: IpAddr,
+    id: u64,
+}
+
+impl LoginAttempt {
+    /// Clears the account and this client's failures, retaining concurrent checks.
+    pub fn success(self) {
+        self.finish(true, Instant::now());
+    }
+
+    fn finish(&self, success: bool, now: Instant) {
         let mut all = self
             .limiter
-            .clients
+            .attempts
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let attempts = all.get_mut(&self.client).expect("reserved client exists");
-        attempts.in_flight -= 1;
-        prune(&mut attempts.failures);
-        if self.failed {
-            attempts.failures.push_back(Instant::now());
+        // Removing the reservation makes a following Drop a no-op.
+        if all.account.running.remove(&self.id).is_none() {
+            return;
         }
-        if attempts.in_flight == 0 && attempts.failures.is_empty() {
-            all.remove(&self.client);
+        let client = all
+            .clients
+            .get_mut(&self.client)
+            .expect("reserved client exists");
+        client.running.remove(&self.id);
+        client.prune(now);
+        if success {
+            client.failures.clear();
+        } else {
+            client.failures.push_back(now);
         }
+        all.account.prune(now);
+        if success {
+            all.account.failures.clear();
+        } else {
+            all.account.failures.push_back(now);
+        }
+    }
+}
+
+impl Drop for LoginAttempt {
+    fn drop(&mut self) {
+        self.finish(false, Instant::now());
     }
 }
 
 impl LoginLimiter {
-    /// Checks the budget and reserves a slot under the same mutex.
-    pub fn try_attempt(&self, client: IpAddr) -> Option<LoginAttempt<'_>> {
-        let mut all = self.clients.lock().unwrap_or_else(|e| e.into_inner());
-        if all.len() >= MAX_TRACKED_CLIENTS && !all.contains_key(&client) {
-            all.retain(|_, attempts| {
-                prune(&mut attempts.failures);
-                attempts.in_flight > 0 || !attempts.failures.is_empty()
-            });
-            if all.len() >= MAX_TRACKED_CLIENTS {
-                return None;
-            }
-        }
-        let attempts = all.entry(client).or_default();
-        prune(&mut attempts.failures);
-        if attempts.failures.len() + attempts.in_flight >= MAX_FAILURES {
-            return None;
-        }
-        attempts.in_flight += 1;
-        Some(LoginAttempt {
-            limiter: self,
-            client,
-            failed: true,
-        })
+    /// Both budgets are reserved under one lock. Rejections never modify their histories.
+    ///
+    /// # Errors
+    ///
+    /// Returns when the client or the account used up its budget, with the wait to show.
+    pub fn try_attempt(self: &Arc<Self>, client: IpAddr) -> Result<LoginAttempt, RateLimit> {
+        self.try_at(client, Instant::now())
     }
-}
 
-fn prune(failures: &mut VecDeque<Instant>) {
-    while failures
-        .front()
-        .is_some_and(|t| t.elapsed() > FAILURE_WINDOW)
-    {
-        failures.pop_front();
+    fn try_at(self: &Arc<Self>, client: IpAddr, now: Instant) -> Result<LoginAttempt, RateLimit> {
+        let mut all = self.attempts.lock().unwrap_or_else(|e| e.into_inner());
+        all.account.prune(now);
+        all.clients.retain(|_, attempts| {
+            attempts.prune(now);
+            !attempts.running.is_empty() || !attempts.failures.is_empty()
+        });
+        let ip_wait = all
+            .clients
+            .get(&client)
+            .and_then(|c| c.retry_after(MAX_FAILURES, now));
+        let account_wait = all.account.retry_after(MAX_ACCOUNT_FAILURES, now);
+        if let Some(retry_after) = ip_wait.into_iter().chain(account_wait).max() {
+            return Err(RateLimit { retry_after });
+        }
+        if all.clients.len() >= MAX_TRACKED_CLIENTS && !all.clients.contains_key(&client) {
+            return Err(RateLimit { retry_after: 1 });
+        }
+        let id = all.next_id;
+        all.next_id += 1;
+        all.account.running.insert(id, now);
+        all.clients
+            .entry(client)
+            .or_default()
+            .running
+            .insert(id, now);
+        Ok(LoginAttempt {
+            limiter: self.clone(),
+            client,
+            id,
+        })
     }
 }
 
@@ -226,55 +254,117 @@ mod tests {
     const A: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
     const B: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2));
 
-    #[tokio::test]
-    async fn password_roundtrip() {
-        let hash = hash_password("correct horse".into()).await;
-        assert!(verify_password("correct horse".into(), hash.clone()).await);
-        assert!(!verify_password("wrong".into(), hash).await);
-        assert!(!verify_password("x".into(), "not-a-hash".into()).await);
+    #[test]
+    fn rotating_ips_and_running_checks_share_twenty_slots() {
+        let limiter = Arc::new(LoginLimiter::default());
+        let now = Instant::now();
+        let attempts: Vec<_> = (1..=20)
+            .map(|n| {
+                limiter
+                    .try_at(IpAddr::V4(Ipv4Addr::new(192, 0, 2, n)), now)
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(limiter.try_at(B, now).err().unwrap().retry_after, 60);
+        drop(attempts);
+        assert!(limiter.try_attempt(B).is_err());
     }
 
     #[test]
-    fn limiter_blocks_only_the_failing_client() {
-        let limiter = LoginLimiter::default();
-        for _ in 0..MAX_FAILURES - 1 {
+    fn expiry_and_retry_after_do_not_move_on_rejection() {
+        let limiter = Arc::new(LoginLimiter::default());
+        let now = Instant::now();
+        for _ in 0..10 {
+            let attempt = limiter.try_at(A, now).unwrap();
+            attempt.finish(false, now);
+        }
+        assert_eq!(
+            limiter
+                .try_at(A, now + Duration::from_millis(10500))
+                .err()
+                .unwrap()
+                .retry_after,
+            50
+        );
+        assert_eq!(
+            limiter
+                .try_at(A, now + Duration::from_secs(59))
+                .err()
+                .unwrap()
+                .retry_after,
+            1
+        );
+        assert!(limiter.try_at(A, now + FAILURE_WINDOW).is_ok());
+    }
+
+    #[test]
+    fn success_clears_failures_without_releasing_other_running_checks() {
+        let limiter = Arc::new(LoginLimiter::default());
+        for _ in 0..9 {
             drop(limiter.try_attempt(A).unwrap());
         }
-        drop(limiter.try_attempt(A).unwrap());
-        assert!(limiter.try_attempt(A).is_none());
-        assert!(limiter.try_attempt(B).is_some());
-    }
-
-    #[test]
-    fn running_attempts_reserve_slots_and_success_releases_them() {
-        let limiter = LoginLimiter::default();
-        let mut attempts: Vec<_> = (0..MAX_FAILURES)
-            .map(|_| limiter.try_attempt(A).unwrap())
-            .collect();
-        assert!(limiter.try_attempt(A).is_none());
-        attempts.last_mut().unwrap().success();
-        drop(attempts.pop());
-        assert!(limiter.try_attempt(A).is_some());
-        // The remaining canceled attempts become failures, so capacity stays bounded.
+        let attempt = limiter.try_attempt(A).unwrap();
+        assert!(limiter.try_attempt(A).is_err());
+        attempt.success();
+        let attempts: Vec<_> = (0..10).map(|_| limiter.try_attempt(A).unwrap()).collect();
+        assert!(limiter.try_attempt(A).is_err());
         drop(attempts);
-        assert!(limiter.try_attempt(A).is_none());
+        assert!(limiter.try_attempt(A).is_err());
+        assert!(limiter.try_attempt(B).is_ok());
     }
 
     #[test]
-    fn expired_failures_are_pruned() {
-        let limiter = LoginLimiter::default();
-        let mut attempts = limiter.clients.lock().unwrap();
-        attempts.insert(
-            A,
-            ClientAttempts {
-                failures: VecDeque::from(
-                    [Instant::now() - FAILURE_WINDOW - Duration::from_secs(1); MAX_FAILURES],
-                ),
-                in_flight: 0,
-            },
+    fn retry_after_covers_both_budgets_and_account_expiry() {
+        let limiter = Arc::new(LoginLimiter::default());
+        let now = Instant::now();
+        // A's older IP failures survive a successful login from B.
+        for _ in 0..10 {
+            limiter.try_at(A, now).unwrap().finish(false, now);
+        }
+        limiter.try_at(B, now).unwrap().finish(true, now);
+        for n in 3..23 {
+            limiter
+                .try_at(IpAddr::V4(Ipv4Addr::new(192, 0, 2, n)), now)
+                .unwrap()
+                .finish(false, now + Duration::from_secs(10));
+        }
+        assert_eq!(
+            limiter
+                .try_at(A, now + Duration::from_secs(20))
+                .err()
+                .unwrap()
+                .retry_after,
+            50
         );
-        drop(attempts);
-        assert!(limiter.try_attempt(A).is_some());
+        assert_eq!(
+            limiter
+                .try_at(A, now + Duration::from_secs(60))
+                .err()
+                .unwrap()
+                .retry_after,
+            10
+        );
+        assert!(limiter.try_at(A, now + Duration::from_secs(70)).is_ok());
+    }
+
+    #[test]
+    fn parallel_reservations_cannot_bypass_either_budget() {
+        let limiter = Arc::new(LoginLimiter::default());
+        let barrier = Arc::new(std::sync::Barrier::new(40));
+        let attempts: Vec<_> = std::thread::scope(|scope| {
+            let tasks: Vec<_> = (0..40)
+                .map(|n| {
+                    let limiter = limiter.clone();
+                    let barrier = barrier.clone();
+                    scope.spawn(move || {
+                        barrier.wait();
+                        limiter.try_attempt(IpAddr::V4(Ipv4Addr::new(192, 0, 2, n)))
+                    })
+                })
+                .collect();
+            tasks.into_iter().map(|t| t.join().unwrap()).collect()
+        });
+        assert_eq!(attempts.iter().filter(|a| a.is_ok()).count(), 20);
     }
 
     #[test]

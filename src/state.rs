@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::aliases::AliasService;
 use crate::auth::LoginLimiter;
+use crate::password::{BreachCheck, PasswordProcessor};
 use crate::stalwart::{self, Client};
 use crate::store::{self, Store};
 
@@ -19,8 +20,12 @@ pub struct AppState {
     /// `None` once an admin exists.
     pub setup_code: Option<Arc<str>>,
     pub login_limiter: Arc<LoginLimiter>,
+    pub setup_limiter: Arc<LoginLimiter>,
+    pub passwords: PasswordProcessor,
     /// Whether `X-Forwarded-For` comes from a reverse proxy we control.
     pub trust_proxy: bool,
+    /// Asks Have I Been Pwned about new admin passwords. `None` switches the check off.
+    pub breach_check: Option<Arc<BreachCheck>>,
     backend: Arc<RwLock<Option<Arc<Backend>>>>,
     alias_write_lock: Arc<tokio::sync::Mutex<()>>,
     connection_lock: Arc<tokio::sync::RwLock<()>>,
@@ -37,13 +42,23 @@ impl AppState {
             store,
             setup_code: setup_code.map(Into::into),
             login_limiter: Arc::default(),
+            setup_limiter: Arc::default(),
+            passwords: PasswordProcessor::default(),
             trust_proxy,
+            breach_check: None,
             backend: Arc::default(),
             alias_write_lock: Arc::default(),
             connection_lock: Arc::default(),
         };
         state.reload_backend().await?;
         Ok(state)
+    }
+
+    /// Enables the leaked-password check for new admin passwords.
+    #[must_use]
+    pub fn with_breach_check(mut self, check: BreachCheck) -> Self {
+        self.breach_check = Some(Arc::new(check));
+        self
     }
 
     /// The current Stalwart connection, or `None` until one is configured.

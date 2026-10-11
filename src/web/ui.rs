@@ -1,17 +1,24 @@
 //! The browser UI: server-rendered pages (askama) enhanced with htmx.
 
+use std::net::IpAddr;
+use std::sync::Arc;
+
 use askama::Template;
 use axum::Router;
-use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use axum::extract::DefaultBodyLimit;
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
+use crate::auth::{LoginAttempt, LoginLimiter, RateLimit};
+use crate::password::{PasswordError, PasswordProcessor, PasswordWork, ProcessingError};
 use crate::stalwart::Account;
 use crate::state::{AppState, Backend};
 use crate::store::Settings;
 
 mod dashboard;
 mod login;
+mod password;
 mod settings;
 mod setup;
 mod tokens;
@@ -24,10 +31,26 @@ pub fn routes() -> Router<AppState> {
         .route("/aliases/list", get(dashboard::list))
         .route("/aliases/toggle", post(dashboard::toggle))
         .route("/aliases/delete", post(dashboard::delete))
-        .route("/login", get(login::page).post(login::submit))
+        .route(
+            "/login",
+            get(login::page)
+                .post(login::submit)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/logout", post(login::logout))
-        .route("/setup", get(setup::page).post(setup::submit))
+        .route(
+            "/setup",
+            get(setup::page)
+                .post(setup::submit)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/settings", get(settings::page).post(settings::save))
+        .route(
+            "/settings/password",
+            get(password::page)
+                .post(password::submit)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/settings/alias-format", post(settings::save_alias_format))
         .route(
             "/settings/domains",
@@ -67,6 +90,81 @@ impl<E: std::error::Error> From<E> for UiError {
 }
 
 type UiResult = Result<Response, UiError>;
+
+/// A refused password form: the status, the message for the page and an optional `Retry-After`.
+struct Denied {
+    status: StatusCode,
+    message: String,
+    retry: Option<u64>,
+}
+
+impl Denied {
+    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            retry: None,
+        }
+    }
+
+    /// The page to show again, with this status and `Retry-After` header.
+    fn respond(self, page: impl IntoResponse) -> Response {
+        let mut response = (self.status, page).into_response();
+        if let Some(seconds) = self.retry {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        response
+    }
+}
+
+/// Maps only categorical errors into the UI; no secret-dependent worker error is logged.
+impl From<ProcessingError> for Denied {
+    fn from(error: ProcessingError) -> Self {
+        let (status, retry) = match &error {
+            ProcessingError::Invalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, None),
+            ProcessingError::Busy => (StatusCode::SERVICE_UNAVAILABLE, Some(1)),
+            ProcessingError::Breach(_) => (StatusCode::SERVICE_UNAVAILABLE, None),
+            ProcessingError::Worker | ProcessingError::Hash => {
+                (StatusCode::INTERNAL_SERVER_ERROR, None)
+            }
+        };
+        Self {
+            status,
+            message: error.to_string(),
+            retry,
+        }
+    }
+}
+
+impl From<PasswordError> for Denied {
+    fn from(error: PasswordError) -> Self {
+        ProcessingError::from(error).into()
+    }
+}
+
+impl From<RateLimit> for Denied {
+    fn from(limit: RateLimit) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: "Too many failed attempts. Please try again later.".into(),
+            retry: Some(limit.retry_after),
+        }
+    }
+}
+
+/// Reserves computing capacity first, so overload consumes no authentication attempt, then one
+/// attempt of the limiter. The slot is released again when the limiter refuses.
+fn admit(
+    passwords: &PasswordProcessor,
+    limiter: &Arc<LoginLimiter>,
+    client: IpAddr,
+) -> Result<(PasswordWork, LoginAttempt), Denied> {
+    let work = passwords.reserve()?;
+    let attempt = limiter.try_attempt(client)?;
+    Ok((work, attempt))
+}
 
 fn render<T: Template>(page: T) -> Result<Html<String>, UiError> {
     Ok(Html(page.render()?))

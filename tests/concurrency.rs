@@ -1,6 +1,6 @@
 //! Regression tests for backend transitions, alias writes and login concurrency.
 use serde_json::{Value, json};
-use stalias::{aliases::NewAlias, auth::hash_password, state::AppState, store::Store, web};
+use stalias::{aliases::NewAlias, password::PasswordProcessor, state::AppState, store::Store, web};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -150,7 +150,12 @@ async fn old_token_is_rejected_on_replacement_mail_server() {
         .unwrap();
     let cookie = format!(
         "stalias_session={}",
-        state.store.create_session().await.unwrap()
+        state
+            .store
+            .create_session("unused-hash".into())
+            .await
+            .unwrap()
+            .unwrap()
     );
     let app = web::router(state.clone());
     let saved = send(
@@ -212,7 +217,12 @@ async fn alias_form_emits_reset_event_only_when_creation_succeeds() {
         .unwrap();
     let cookie = format!(
         "stalias_session={}",
-        state.store.create_session().await.unwrap()
+        state
+            .store
+            .create_session("unused-hash".into())
+            .await
+            .unwrap()
+            .unwrap()
     );
     let mut req = form(
         "/aliases",
@@ -254,7 +264,14 @@ async fn alias_form_emits_reset_event_only_when_creation_succeeds() {
 async fn parallel_login_batch_respects_ten_failure_limit() {
     let store = Store::in_memory().unwrap();
     store
-        .create_admin(hash_password("correct-password".into()).await)
+        .create_admin(
+            PasswordProcessor::default()
+                .reserve()
+                .unwrap()
+                .hash("correct-password".into())
+                .await
+                .unwrap(),
+        )
         .await
         .unwrap();
     let app = web::router(AppState::new(store, None, false).await.unwrap());
@@ -271,14 +288,23 @@ async fn parallel_login_batch_respects_ten_failure_limit() {
     while let Some(reply) = tasks.join_next().await {
         match reply.unwrap().as_u16() {
             401 => unauthorized += 1,
-            429 => {}
+            429 | 503 => {}
             status => panic!("unexpected login status: {status}"),
         }
     }
-    assert_eq!(
-        unauthorized, 10,
-        "only ten attempts may perform verification"
+    assert!(
+        unauthorized <= 10,
+        "at most ten attempts may perform verification"
     );
+    // Fill remaining budget after the overload has cleared.
+    for _ in unauthorized..10 {
+        assert_eq!(
+            send(&app, form("/login", None, &[("password", "wrong")]))
+                .await
+                .status,
+            401
+        );
+    }
     assert_eq!(
         send(&app, form("/login", None, &[("password", "wrong")]))
             .await
@@ -351,7 +377,12 @@ async fn server_switch_revokes_tokens_created_by_in_flight_ui_requests() {
         .unwrap();
     let cookie = format!(
         "stalias_session={}",
-        state.store.create_session().await.unwrap()
+        state
+            .store
+            .create_session("unused-hash".into())
+            .await
+            .unwrap()
+            .unwrap()
     );
     let app = web::router(state.clone());
     let pending = tokio::spawn(async move {

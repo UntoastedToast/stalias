@@ -12,18 +12,32 @@ const SESSION_TTL_SECS: i64 = 7 * 24 * 3600;
 
 impl Store {
     /// Returns the cookie value for a new login session.
-    pub async fn create_session(&self) -> Result<String> {
+    pub async fn create_session(&self, expected_hash: String) -> Result<Option<String>> {
         let plain = Alphanumeric.sample_string(&mut rand::rng(), 48);
         let hashed = hash(&plain);
         self.run(move |conn| {
-            conn.execute(
+            let tx = rusqlite::Transaction::new_unchecked(
+                conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let current: Option<String> = tx
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'admin_hash'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if current.as_deref() != Some(expected_hash.as_str()) {
+                return Ok(None);
+            }
+            tx.execute(
                 "INSERT INTO sessions (hash, expires_at) VALUES (?1, ?2)",
                 params![hashed, now() + SESSION_TTL_SECS],
             )?;
-            Ok(())
+            tx.commit()?;
+            Ok(Some(plain))
         })
-        .await?;
-        Ok(plain)
+        .await
     }
 
     /// Whether the cookie value belongs to a session that has not expired.
@@ -70,7 +84,8 @@ mod tests {
     #[tokio::test]
     async fn sessions_expire_and_can_be_deleted() {
         let s = Store::in_memory().unwrap();
-        let id = s.create_session().await.unwrap();
+        s.create_admin("hash".into()).await.unwrap();
+        let id = s.create_session("hash".into()).await.unwrap().unwrap();
         assert!(s.session_valid(&id).await.unwrap());
         s.delete_session(&id).await.unwrap();
         assert!(!s.session_valid(&id).await.unwrap());

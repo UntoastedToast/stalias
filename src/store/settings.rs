@@ -7,7 +7,7 @@ use rusqlite::{OptionalExtension, params};
 
 use crate::naming::NameFormat;
 
-use super::{Result, Store, alias_dates, tokens};
+use super::{Result, Store, alias_dates, hash, now, tokens};
 
 pub(super) const SCHEMA: &str =
     "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);";
@@ -64,6 +64,47 @@ impl Store {
                 [hash],
             )?;
             Ok(changed == 1)
+        })
+        .await
+    }
+
+    /// Compare the password version and (for the web UI) session inside the write transaction.
+    /// A successful change revokes every session, preserving tokens and other settings.
+    pub async fn change_admin_password(
+        &self,
+        expected_hash: String,
+        new_hash: String,
+        session: Option<String>,
+    ) -> Result<bool> {
+        let session = session.map(|s| hash(&s));
+        self.run(move |conn| {
+            let tx = rusqlite::Transaction::new_unchecked(
+                conn,
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            if let Some(session) = session {
+                let valid = tx
+                    .query_row(
+                        "SELECT 1 FROM sessions WHERE hash = ?1 AND expires_at >= ?2",
+                        params![session, now()],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if !valid {
+                    return Ok(false);
+                }
+            }
+            let changed = tx.execute(
+                "UPDATE settings SET value = ?1 WHERE key = 'admin_hash' AND value = ?2",
+                params![new_hash, expected_hash],
+            )?;
+            if changed != 1 {
+                return Ok(false);
+            }
+            tx.execute("DELETE FROM sessions", [])?;
+            tx.commit()?;
+            Ok(true)
         })
         .await
     }

@@ -16,15 +16,15 @@ use crate::state::AppState;
 enum Tab {
     #[default]
     Connection,
-    Domains,
-    Names,
+    Aliases,
+    Security,
 }
 
 impl Tab {
     fn parse(value: &str) -> Self {
         match value {
-            "domains" => Self::Domains,
-            "names" => Self::Names,
+            "aliases" | "domains" | "names" => Self::Aliases,
+            "security" => Self::Security,
             _ => Self::Connection,
         }
     }
@@ -32,8 +32,8 @@ impl Tab {
     fn as_str(self) -> &'static str {
         match self {
             Self::Connection => "connection",
-            Self::Domains => "domains",
-            Self::Names => "names",
+            Self::Aliases => "aliases",
+            Self::Security => "security",
         }
     }
 
@@ -71,6 +71,8 @@ struct SettingsPage {
     domains_view: DomainsView,
     /// An error of the connection form.
     error: Option<String>,
+    password_error: Option<String>,
+    password_autofocus: bool,
 }
 
 /// Messages and input to show again after a form was refused.
@@ -80,6 +82,7 @@ struct Feedback {
     /// The URL the admin typed, so it does not have to be typed again.
     typed_url: Option<String>,
     domains_error: Option<String>,
+    password_error: Option<String>,
 }
 
 /// Query string of `GET /settings`.
@@ -89,7 +92,7 @@ pub struct SettingsQuery {
 }
 
 /// `GET /settings`: the Stalwart connection form (step 2 of the wizard). Afterwards the page has
-/// three tabs: the connection, the alias domains and the style of alias names.
+/// three tabs: connection, alias configuration and security.
 pub async fn page(
     _: Admin,
     State(state): State<AppState>,
@@ -139,8 +142,23 @@ async fn render_settings(state: &AppState, tab: Tab, feedback: Feedback) -> UiRe
         ),
         domains_view,
         error: feedback.connection_error,
+        password_error: feedback.password_error,
+        password_autofocus: tab == Tab::Security,
     };
     Ok(render(page)?.into_response())
+}
+
+/// Password errors return to the security tab, with password fields left blank.
+pub(super) async fn render_security(state: &AppState, error: Option<String>) -> UiResult {
+    render_settings(
+        state,
+        Tab::Security,
+        Feedback {
+            password_error: error,
+            ..Feedback::default()
+        },
+    )
+    .await
 }
 
 /// Fields of `POST /settings`.
@@ -221,7 +239,7 @@ pub async fn save_alias_format(
     if let Some(format) = NameFormat::parse(&form.alias_format) {
         state.store.set_alias_format(format).await?;
     }
-    Ok(Redirect::to(&Tab::Names.location()).into_response())
+    Ok(Redirect::to(&Tab::Aliases.location()).into_response())
 }
 
 #[derive(Template)]
@@ -235,7 +253,7 @@ struct DomainsPage {
 /// tab of the settings page, so this opens it there.
 pub async fn domains_page(_: Admin, State(state): State<AppState>) -> UiResult {
     if !in_wizard(&state).await? {
-        return Ok(Redirect::to(&Tab::Domains.location()).into_response());
+        return Ok(Redirect::to(&Tab::Aliases.location()).into_response());
     }
     render_domains_step(&state, None).await
 }
@@ -306,7 +324,7 @@ pub async fn save_domains(
                 domains_error: Some(message),
                 ..Feedback::default()
             };
-            render_settings(&state, Tab::Domains, feedback).await
+            render_settings(&state, Tab::Aliases, feedback).await
         }
     };
     let backend = backend(&state)?;
@@ -327,7 +345,7 @@ pub async fn save_domains(
     let to = if wizard {
         "/".to_owned()
     } else {
-        Tab::Domains.location()
+        Tab::Aliases.location()
     };
     Ok(Redirect::to(&to).into_response())
 }
@@ -347,10 +365,12 @@ mod tests {
 
     #[test]
     fn unknown_tabs_open_the_connection() {
-        assert_eq!(Tab::parse("names"), Tab::Names);
-        assert_eq!(Tab::parse("domains"), Tab::Domains);
+        assert_eq!(Tab::parse("aliases"), Tab::Aliases);
+        assert_eq!(Tab::parse("names"), Tab::Aliases);
+        assert_eq!(Tab::parse("security"), Tab::Security);
+        assert_eq!(Tab::parse("domains"), Tab::Aliases);
         assert_eq!(Tab::parse("nonsense"), Tab::Connection);
-        assert_eq!(Tab::parse(Tab::Names.as_str()), Tab::Names);
-        assert_eq!(Tab::Domains.location(), "/settings?tab=domains");
+        assert_eq!(Tab::parse(Tab::Aliases.as_str()), Tab::Aliases);
+        assert_eq!(Tab::Aliases.location(), "/settings?tab=aliases");
     }
 }

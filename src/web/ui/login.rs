@@ -1,27 +1,38 @@
 use askama::Template;
 use axum::Form;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::Deserialize;
 
-use super::{UiError, UiResult, render};
-use crate::auth::{ClientIp, SESSION_COOKIE, is_https, session_cookie, verify_password};
+use super::{Denied, UiError, UiResult, admit, render};
+use crate::auth::{ClientIp, SESSION_COOKIE, is_https, session_cookie};
+use crate::password::bounded_normalize;
 use crate::state::AppState;
 
 #[derive(Template)]
 #[template(path = "pages/login.html")]
 struct LoginPage {
     error: Option<String>,
+    password_changed: bool,
+}
+
+#[derive(Deserialize)]
+pub struct LoginQuery {
+    password_changed: Option<String>,
 }
 
 /// `GET /login`.
-pub async fn page(State(state): State<AppState>) -> UiResult {
+pub async fn page(State(state): State<AppState>, Query(query): Query<LoginQuery>) -> UiResult {
     if state.store.settings().await?.admin_hash.is_none() {
         return Err(UiError::Redirect("/setup"));
     }
-    Ok(render(LoginPage { error: None })?.into_response())
+    Ok(render(LoginPage {
+        error: None,
+        password_changed: query.password_changed.as_deref() == Some("1"),
+    })?
+    .into_response())
 }
 
 /// Fields of `POST /login`.
@@ -30,7 +41,8 @@ pub struct LoginForm {
     password: String,
 }
 
-/// `POST /login`: checks the admin password. Failed attempts are rate-limited per client.
+/// `POST /login`: checks the admin password. Failed attempts are rate-limited per client and
+/// per account, and password checks are limited to a few at a time.
 pub async fn submit(
     State(state): State<AppState>,
     ClientIp(client): ClientIp,
@@ -41,23 +53,34 @@ pub async fn submit(
     let Some(hash) = state.store.settings().await?.admin_hash else {
         return Err(UiError::Redirect("/setup"));
     };
-    let deny = |status: StatusCode, msg: &str| -> UiResult {
+    let deny = |d: Denied| -> UiResult {
         let page = render(LoginPage {
-            error: Some(msg.into()),
+            error: Some(d.message.clone()),
+            password_changed: false,
         })?;
-        Ok((status, page).into_response())
+        Ok(d.respond(page))
     };
-    let Some(mut attempt) = state.login_limiter.try_attempt(client) else {
-        return deny(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many failed attempts. Try again in a minute.",
-        );
+    let password = match bounded_normalize(&form.password) {
+        Ok(p) => p,
+        Err(e) => return deny(e.into()),
     };
-    if !verify_password(form.password, hash).await {
-        return deny(StatusCode::UNAUTHORIZED, "Wrong password.");
+    let (work, attempt) = match admit(&state.passwords, &state.login_limiter, client) {
+        Ok(admitted) => admitted,
+        Err(d) => return deny(d),
+    };
+    match work.verify(password, hash.clone()).await {
+        Ok(true) => attempt.success(),
+        Ok(false) => {
+            return deny(Denied::new(StatusCode::UNAUTHORIZED, "Wrong password."));
+        }
+        Err(e) => return deny(e.into()),
     }
-    attempt.success();
-    let session = state.store.create_session().await?;
+    let Some(session) = state.store.create_session(hash).await? else {
+        return deny(Denied::new(
+            StatusCode::CONFLICT,
+            "The password changed while you were logging in. Please try again.",
+        ));
+    };
     Ok((
         jar.add(session_cookie(session, is_https(&headers))),
         Redirect::to("/"),

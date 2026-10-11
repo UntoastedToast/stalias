@@ -1,9 +1,11 @@
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use rand::distr::{Alphanumeric, SampleString};
 use stalias::config::ServerConfig;
+use stalias::password::{BreachCheck, PasswordProcessor};
 use stalias::state::AppState;
 use stalias::store::Store;
 use stalias::web;
@@ -25,9 +27,23 @@ async fn main() -> ExitCode {
         }
     };
 
-    // Used by the container HEALTHCHECK, since the image has no curl.
-    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
-        return healthcheck(config.listen.port()).await;
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    match args.as_slice() {
+        [] => {}
+        [command] if command == "healthcheck" => return healthcheck(config.listen.port()).await,
+        [command] if command == "reset-admin-password" => {
+            return match reset_admin_password(config).await {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        _ => {
+            eprintln!("Usage: stalias [healthcheck | reset-admin-password]");
+            return ExitCode::FAILURE;
+        }
     }
 
     match run(config).await {
@@ -51,7 +67,10 @@ async fn run(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     tokio::spawn(purge_sessions(store.clone()));
-    let state = AppState::new(store, setup_code, config.trust_proxy).await?;
+    let mut state = AppState::new(store, setup_code, config.trust_proxy).await?;
+    if let Some(check) = breach_check(&config)? {
+        state = state.with_breach_check(check);
+    }
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!("listening on {}", config.listen);
     axum::serve(
@@ -106,4 +125,40 @@ async fn healthcheck(port: u16) -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }
+}
+
+/// The leaked-password check, unless `HIBP_CHECK=false` switched it off.
+fn breach_check(config: &ServerConfig) -> Result<Option<BreachCheck>, reqwest::Error> {
+    config
+        .breach_check
+        .then(|| BreachCheck::new(BreachCheck::DEFAULT_BASE))
+        .transpose()
+}
+
+/// Only local operators with a terminal and access to the existing database can recover access.
+async fn reset_admin_password(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
+    if !std::io::stdin().is_terminal() {
+        return Err("Password reset requires an interactive terminal.".into());
+    }
+    let store = Store::open_existing(&config.data_dir.join("stalias.db"))?;
+    let expected_hash = store
+        .settings()
+        .await?
+        .admin_hash
+        .ok_or("No admin exists in this database.")?;
+    let password = rpassword::prompt_password("New admin password: ")?;
+    let confirm = rpassword::prompt_password("Repeat new password: ")?;
+    let check = breach_check(&config)?;
+    let hash = PasswordProcessor::default()
+        .reserve()?
+        .new_hash(password, confirm, check.as_ref())
+        .await?;
+    if !store
+        .change_admin_password(expected_hash, hash, None)
+        .await?
+    {
+        return Err("The admin password changed concurrently. Run the reset again.".into());
+    }
+    println!("Admin password reset. All devices have been logged out.");
+    Ok(())
 }
