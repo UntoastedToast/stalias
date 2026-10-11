@@ -5,6 +5,7 @@ pub mod aliases;
 pub mod auth;
 pub mod config;
 pub mod naming;
+pub mod password;
 pub mod stalwart;
 pub mod state;
 pub mod store;
